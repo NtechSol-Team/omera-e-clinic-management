@@ -26,6 +26,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         retry: false,
     });
 
+    // useEffect(() => { if (user) console.log("AUTH PROVIDER USER:", user); }, [user]);
+
     const getErrorMessage = (error: Error) => {
         try {
             // Try to parse JSON from the error message (format: "Status: JSON")
@@ -47,8 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const res = await apiRequest("POST", "/api/login", credentials);
             return await res.json();
         },
-        onSuccess: (user: User) => {
-            queryClient.setQueryData(["/api/user"], user);
+        onSuccess: (data: { user: User }) => {
+            queryClient.setQueryData(["/api/user"], data.user);
         },
         onError: (error: Error) => {
             const message = getErrorMessage(error);

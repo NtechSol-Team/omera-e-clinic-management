@@ -115,7 +115,13 @@ export function Navbar() {
           </Link>
 
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
-            {navItems.map((item, index) => {
+            {navItems.filter(item => {
+              const userRole = user?.role?.toLowerCase();
+              if (userRole === 'receptionist') {
+                return ['Dashboard', 'New Registration', 'Appointments', 'Manage Appointments'].includes(item.label);
+              }
+              return true;
+            }).map((item, index) => {
               if (item.children) {
                 const isActive = item.children.some(child => child.path === location);
                 return <NavDropdown key={index} item={item} isActive={isActive} />;

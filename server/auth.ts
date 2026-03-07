@@ -3,24 +3,10 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
-import { User, registerSchema } from "@shared/schema";
+import { User } from "@shared/schema";
+import { storage } from "./storage";
 
-// Helper to compare strings safely if we were using a real DB, 
-// for now we match against env vars as requested.
-// In a real app, use bcrypt.compare
-function verifyCredentials(username: string, password: string): User | null {
-    const adminUser = process.env.ADMIN_USERNAME || "Admin";
-    const adminPass = process.env.ADMIN_PASSWORD || "Dr.Admin";
-
-    if (username === adminUser && password === adminPass) {
-        return {
-            id: "1",
-            username: adminUser,
-            createdAt: new Date().toISOString(),
-        };
-    }
-    return null;
-}
+import { log } from "./index";
 
 export function setupAuth(app: Express) {
     const MemoryStore = createMemoryStore(session);
@@ -48,11 +34,13 @@ export function setupAuth(app: Express) {
     passport.use(
         new LocalStrategy(async (username, password, done) => {
             try {
-                const user = verifyCredentials(username, password);
-                if (!user) {
+                const user = await storage.getUserByUsername(username);
+                if (!user || user.password !== password) {
                     return done(null, false, { message: "Invalid username or password" });
                 }
-                return done(null, user);
+                // Don't return the password to the frontend
+                const { password: _, ...userWithoutPassword } = user;
+                return done(null, userWithoutPassword as User);
             } catch (err) {
                 return done(err);
             }
@@ -63,14 +51,16 @@ export function setupAuth(app: Express) {
         done(null, (user as User).id);
     });
 
-    passport.deserializeUser((id, done) => {
-        // In a real app we would look up by ID. 
-        // Here we just return the admin user object if ID matches.
-        if (id === "1") {
-            const adminUser = process.env.ADMIN_USERNAME || "admin";
-            done(null, { id: "1", username: adminUser } as User);
-        } else {
-            done(null, false);
+    passport.deserializeUser(async (id: string, done) => {
+        try {
+            const user = await storage.getUser(id);
+            if (!user) {
+                return done(null, false);
+            }
+            const { password: _, ...userWithoutPassword } = user;
+            done(null, userWithoutPassword as User);
+        } catch (err) {
+            done(err);
         }
     });
 
@@ -86,6 +76,7 @@ export function setupAuth(app: Express) {
                 if (err) {
                     return next(err);
                 }
+                log(`User logged in: ${user.username}`, "auth");
                 return res.json({ message: "Login successful", user });
             });
         })(req, res, next);

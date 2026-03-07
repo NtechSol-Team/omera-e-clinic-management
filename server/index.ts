@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import compression from "compression";
@@ -6,6 +7,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import helmet from "helmet";
 import { setupAuth } from "./auth";
+import { User } from "@shared/schema";
 
 const app = express();
 
@@ -90,7 +92,9 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       const status = res.statusCode;
       const statusIcon = status >= 200 && status < 300 ? "✓" : status >= 400 ? "✗" : "";
-      const logLine = `${req.method} ${path} ${status} ${statusIcon} in ${duration}ms`;
+      const user = (req as any).user as User | undefined;
+      const userLabel = user ? ` (${user.username})` : "";
+      const logLine = `${req.method} ${path}${userLabel} ${status} ${statusIcon} in ${duration}ms`;
       log(logLine);
     }
   });

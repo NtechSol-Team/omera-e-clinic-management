@@ -181,21 +181,26 @@ export default function BillingCreate() {
     ]);
   };
 
-  const updateMedicine = (index: number, medicineId: string) => {
-    const medicine = medicines.find((m) => m.id === medicineId);
-    if (medicine) {
-      const updated = [...selectedMedicines];
-      updated[index] = {
-        medicineId: medicine.id,
-        medicineName: medicine.name,
-        quantity: 1,
-        unitPrice: medicine.sellingPrice,
-        discountPercent: 0,
-        discount: 0,
-        total: medicine.sellingPrice,
-      };
-      setSelectedMedicines(updated);
-    }
+  const updateMedicineName = (index: number, name: string) => {
+    const updated = [...selectedMedicines];
+    updated[index].medicineName = name;
+    // Clear ID if name is changed manually, so server knows to search/add
+    updated[index].medicineId = "";
+    setSelectedMedicines(updated);
+  };
+
+  const updateMedicine = (index: number, medicine: Medicine) => {
+    const updated = [...selectedMedicines];
+    updated[index] = {
+      medicineId: medicine.id,
+      medicineName: medicine.name,
+      quantity: 1,
+      unitPrice: medicine.sellingPrice,
+      discountPercent: 0,
+      discount: 0,
+      total: medicine.sellingPrice,
+    };
+    setSelectedMedicines(updated);
   };
 
   const updateMedicineQuantity = (index: number, quantity: number) => {
@@ -425,26 +430,39 @@ export default function BillingCreate() {
                   <div className="space-y-3">
                     {selectedMedicines.map((med, index) => (
                       <div key={index} className="p-3 bg-muted/30 rounded-lg space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Select
-                            value={med.medicineId}
-                            onValueChange={(value) => updateMedicine(index, value)}
-                          >
-                            <SelectTrigger className="flex-1">
-                              <SelectValue placeholder="Select medicine" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {medicines.map((medicine) => (
-                                <SelectItem
-                                  key={medicine.id}
-                                  value={medicine.id}
-                                  disabled={medicine.quantity === 0}
-                                >
-                                  {medicine.name} (Stock: {medicine.quantity})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 space-y-2">
+                            <div className="relative">
+                              <Input
+                                placeholder="Type medicine name..."
+                                value={med.medicineName}
+                                onChange={(e) => updateMedicineName(index, e.target.value)}
+                                className="h-9"
+                              />
+                              {med.medicineName && !med.medicineId && (
+                                <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto bg-popover border rounded-md shadow-md divide-y">
+                                  {medicines
+                                    .filter(m => m.name.toLowerCase().includes(med.medicineName!.toLowerCase()))
+                                    .map(suggestion => (
+                                      <button
+                                        key={suggestion.id}
+                                        type="button"
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors flex justify-between items-center"
+                                        onClick={() => updateMedicine(index, suggestion)}
+                                      >
+                                        <span>{suggestion.name}</span>
+                                        <span className="text-xs text-muted-foreground italic">₹{suggestion.sellingPrice}</span>
+                                      </button>
+                                    ))}
+                                </div>
+                              )}
+                              {med.medicineId && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" title="In Master List" />
+                                </div>
+                              )}
+                            </div>
+                          </div>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -454,54 +472,52 @@ export default function BillingCreate() {
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
-                        {med.medicineId && (
-                          <div className="grid grid-cols-4 gap-2">
-                            <div>
-                              <label className="text-xs text-muted-foreground">Qty</label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={med.quantity}
-                                onChange={(e) =>
-                                  updateMedicineQuantity(index, parseInt(e.target.value) || 1)
-                                }
-                                className="h-8"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs text-muted-foreground">Price</label>
-                              <Input
-                                type="number"
-                                min="0"
-                                value={med.unitPrice}
-                                onChange={(e) =>
-                                  updateMedicinePrice(index, parseFloat(e.target.value) || 0)
-                                }
-                                className="h-8"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs text-muted-foreground">Disc %</label>
-                              <Input
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={med.discountPercent}
-                                onChange={(e) =>
-                                  updateMedicineDiscount(index, parseFloat(e.target.value) || 0)
-                                }
-                                className="h-8"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs text-muted-foreground">Total (Net)</label>
-                              <div className="h-8 flex flex-col justify-center font-medium text-sm">
-                                <span>₹{med.total.toFixed(2)}</span>
-                                {med.discount ? <span className="text-xs text-green-600">(-₹{med.discount.toFixed(2)})</span> : null}
-                              </div>
+                        <div className="grid grid-cols-4 gap-2">
+                          <div>
+                            <label className="text-xs text-muted-foreground">Qty</label>
+                            <Input
+                              type="number"
+                              min="1"
+                              value={med.quantity}
+                              onChange={(e) =>
+                                updateMedicineQuantity(index, parseInt(e.target.value) || 1)
+                              }
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Price</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={med.unitPrice}
+                              onChange={(e) =>
+                                updateMedicinePrice(index, parseFloat(e.target.value) || 0)
+                              }
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Disc %</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={med.discountPercent}
+                              onChange={(e) =>
+                                updateMedicineDiscount(index, parseFloat(e.target.value) || 0)
+                              }
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Total (Net)</label>
+                            <div className="h-8 flex flex-col justify-center font-medium text-sm">
+                              <span>₹{med.total.toFixed(2)}</span>
+                              {med.discount ? <span className="text-xs text-green-600">(-₹{med.discount.toFixed(2)})</span> : null}
                             </div>
                           </div>
-                        )}
+                        </div>
                       </div>
                     ))}
                   </div>

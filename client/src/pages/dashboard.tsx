@@ -20,6 +20,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertAppointmentSchema } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { z } from "zod";
 
 type AppointmentForm = z.infer<typeof insertAppointmentSchema>;
@@ -187,6 +188,7 @@ export default function Dashboard() {
     return basePatients;
   };
 
+  const { user } = useAuth();
   const displayedPatients = getDisplayedPatients();
 
   return (
@@ -235,39 +237,43 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Today's Paid
-            </CardTitle>
-            <TrendingUp className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600" data-testid="text-today-paid">
-              {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPaidRevenue.toLocaleString()}`}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Amount received today
-            </p>
-          </CardContent>
-        </Card>
+        {user?.role === 'admin' && (
+          <>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Today's Paid
+                </CardTitle>
+                <TrendingUp className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600" data-testid="text-today-paid">
+                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPaidRevenue.toLocaleString()}`}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Amount received today
+                </p>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Today's Pending
-            </CardTitle>
-            <AlertCircle className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive" data-testid="text-today-pending">
-              {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPendingAmount.toLocaleString()}`}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Pending from today's bills
-            </p>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Today's Pending
+                </CardTitle>
+                <AlertCircle className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive" data-testid="text-today-pending">
+                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPendingAmount.toLocaleString()}`}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pending from today's bills
+                </p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -305,89 +311,93 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Card className="cursor-pointer hover:shadow-md transition-shadow">
+        {user?.role === 'admin' && (
+          <>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Card className="cursor-pointer hover:shadow-md transition-shadow">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      Bills with Pending
+                    </CardTitle>
+                    <div className="flex items-center gap-1">
+                      <AlertCircle className="w-4 h-4 text-muted-foreground" />
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-destructive" data-testid="text-pending-payments">
+                      {patientsLoading ? <Skeleton className="h-8 w-16" /> : pendingBills.length}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Click to view all pending bills
+                    </p>
+                  </CardContent>
+                </Card>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0 max-h-96 overflow-hidden" align="start">
+                <div className="p-3 border-b bg-muted/50">
+                  <h4 className="font-semibold text-sm">Pending Bills ({pendingBills.length})</h4>
+                  <p className="text-xs text-muted-foreground">Click on a bill to view details</p>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {pendingBills.length === 0 ? (
+                    <div className="p-4 text-center text-muted-foreground text-sm">
+                      No pending bills
+                    </div>
+                  ) : (
+                    pendingBills
+                      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                      .map((bill) => (
+                        <div
+                          key={bill.id}
+                          className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b last:border-b-0 transition-colors"
+                          onClick={() => setSelectedBillForDetails(bill)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-destructive/10 flex items-center justify-center">
+                              <Receipt className="w-4 h-4 text-destructive" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">{bill.patientName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(bill.date), "dd MMM yyyy")}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-destructive text-sm">
+                              ₹{bill.pendingAmount.toLocaleString()}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              of ₹{bill.finalAmount.toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Bills with Pending
+                  Total Pending Amount
                 </CardTitle>
-                <div className="flex items-center gap-1">
-                  <AlertCircle className="w-4 h-4 text-muted-foreground" />
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                </div>
+                <AlertCircle className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-destructive" data-testid="text-pending-payments">
-                  {patientsLoading ? <Skeleton className="h-8 w-16" /> : pendingBills.length}
+                <div className="text-2xl font-bold text-destructive" data-testid="text-total-pending-amount">
+                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${totalPendingAmount.toLocaleString()}`}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Click to view all pending bills
+                  Outstanding balance from all bills
                 </p>
               </CardContent>
             </Card>
-          </PopoverTrigger>
-          <PopoverContent className="w-80 p-0 max-h-96 overflow-hidden" align="start">
-            <div className="p-3 border-b bg-muted/50">
-              <h4 className="font-semibold text-sm">Pending Bills ({pendingBills.length})</h4>
-              <p className="text-xs text-muted-foreground">Click on a bill to view details</p>
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              {pendingBills.length === 0 ? (
-                <div className="p-4 text-center text-muted-foreground text-sm">
-                  No pending bills
-                </div>
-              ) : (
-                pendingBills
-                  .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                  .map((bill) => (
-                    <div
-                      key={bill.id}
-                      className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b last:border-b-0 transition-colors"
-                      onClick={() => setSelectedBillForDetails(bill)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-destructive/10 flex items-center justify-center">
-                          <Receipt className="w-4 h-4 text-destructive" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm">{bill.patientName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {format(new Date(bill.date), "dd MMM yyyy")}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-destructive text-sm">
-                          ₹{bill.pendingAmount.toLocaleString()}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          of ₹{bill.finalAmount.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Pending Amount
-            </CardTitle>
-            <AlertCircle className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive" data-testid="text-total-pending-amount">
-              {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${totalPendingAmount.toLocaleString()}`}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Outstanding balance from all bills
-            </p>
-          </CardContent>
-        </Card>
+          </>
+        )}
       </div>
 
       {todayPatients.length > 0 && (
@@ -460,7 +470,7 @@ export default function Dashboard() {
                                 <span className="font-semibold">{patientTodayBills.length}</span>
                               </div>
                             ) : null}
-                            {patientTodayBills.length > 0 && (
+                            {user?.role === 'admin' && patientTodayBills.length > 0 && (
                               <div className="text-sm">
                                 <span className="text-green-600 font-semibold">₹{todayPaid.toLocaleString()}</span>
                                 {todayPending > 0 && (
@@ -470,23 +480,22 @@ export default function Dashboard() {
                                 )}
                               </div>
                             )}
-                            {patientTodayBills.length === 0 && patientTodayVisits.length > 0 && (
-                              <div className="text-xs text-muted-foreground">No bills yet</div>
-                            )}
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 z-10">
-                          <Button
-                            size="sm"
-                            className="bg-blue-600 hover:bg-blue-700 text-white h-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              sessionStorage.setItem("preselectedPatientId", patient.id);
-                              setLocation("/billing");
-                            }}
-                          >
-                            Create Bill
-                          </Button>
+                          {user?.role === 'admin' && (
+                            <Button
+                              size="sm"
+                              className="bg-blue-600 hover:bg-blue-700 text-white h-8"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                sessionStorage.setItem("preselectedPatientId", patient.id);
+                                setLocation("/billing");
+                              }}
+                            >
+                              Create Bill
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="secondary"

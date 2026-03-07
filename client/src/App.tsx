@@ -21,7 +21,7 @@ import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 
-function ProtectedRoute(props: { component: React.ComponentType<any>, path?: string }) {
+function ProtectedRoute(props: { component: React.ComponentType<any>, path?: string, roles?: Array<'admin' | 'receptionist'> }) {
   const { user, isLoading } = useAuth();
 
   if (isLoading) {
@@ -36,6 +36,10 @@ function ProtectedRoute(props: { component: React.ComponentType<any>, path?: str
     return <Redirect to="/auth" />;
   }
 
+  if (props.roles && !props.roles.includes(user.role)) {
+    return <Redirect to="/" />;
+  }
+
   return <Route path={props.path} component={props.component} />;
 }
 
@@ -46,13 +50,13 @@ function Router() {
       <ProtectedRoute path="/" component={Dashboard} />
       <ProtectedRoute path="/registration" component={Registration} />
       <ProtectedRoute path="/patient/:id" component={PatientDetails} />
-      <ProtectedRoute path="/billing" component={BillingCreate} />
-      <ProtectedRoute path="/bills" component={BillingManage} />
-      <ProtectedRoute path="/medicines" component={Medicines} />
-      <ProtectedRoute path="/treatments" component={Treatments} />
-      <ProtectedRoute path="/expenses" component={Expenses} />
+      <ProtectedRoute path="/billing" component={BillingCreate} roles={['admin']} />
+      <ProtectedRoute path="/bills" component={BillingManage} roles={['admin']} />
+      <ProtectedRoute path="/medicines" component={Medicines} roles={['admin']} />
+      <ProtectedRoute path="/treatments" component={Treatments} roles={['admin']} />
+      <ProtectedRoute path="/expenses" component={Expenses} roles={['admin']} />
       <ProtectedRoute path="/appointments" component={AppointmentMaster} />
-      <ProtectedRoute path="/reports" component={Reports} />
+      <ProtectedRoute path="/reports" component={Reports} roles={['admin']} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -72,7 +76,14 @@ function App() {
             </div>
             <footer className="fixed left-0 bottom-0 z-40 w-full h-12 border-t bg-card/95 text-sm flex items-center justify-center text-muted-foreground backdrop-blur">
               <div className="max-w-[1600px] mx-auto px-4 text-center">
-                Copyright © {new Date().getFullYear()} Nakrani Techno & Solution LLP. All Rights Reserved.
+                <a
+                  href="https://nakranitechno.onrender.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors"
+                >
+                  Copyright © {new Date().getFullYear()} Nakrani Techno & Solution LLP. All Rights Reserved.
+                </a>
               </div>
             </footer>
             <Toaster />

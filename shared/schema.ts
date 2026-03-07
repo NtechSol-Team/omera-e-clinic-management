@@ -2,8 +2,10 @@ import { z } from "zod";
 
 // User Schema
 export interface User {
-  id: string;
+  id: number;
   username: string;
+  password?: string; // Optional as we don't want to send it to the client
+  role: 'admin' | 'receptionist';
   createdAt: string;
 }
 
