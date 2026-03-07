@@ -50,7 +50,7 @@ export default function AuthPage() {
                 <div className="flex flex-col justify-center space-y-6">
                     <div className="space-y-2 text-center">
                         <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl/none">
-                            Prime Care
+                            Omera
                         </h1>
                         <p className="text-gray-500 md:text-xl">
                             Advanced Skin Clinic Management System

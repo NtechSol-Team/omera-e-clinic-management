@@ -110,7 +110,7 @@ export function Navbar() {
               <Heart className="w-5 h-5 text-primary-foreground" />
             </div>
             <span className="text-lg font-semibold tracking-tight hidden sm:inline-block" data-testid="text-clinic-name">
-              Clinic Care
+              Omera
             </span>
           </Link>
 
