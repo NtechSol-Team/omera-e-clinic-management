@@ -34,7 +34,8 @@ function ProtectedRoute(props: { component: React.ComponentType<any>, path?: str
   }
 
   if (!user) {
-    return <Redirect to="/auth" />;
+    const currentPath = window.location.pathname;
+    return <Redirect to={`/auth?returnTo=${encodeURIComponent(currentPath)}`} />;
   }
 
   if (props.roles && !props.roles.includes(user.role)) {
