@@ -47,6 +47,7 @@ export interface Visit {
   complaints: string;
   diagnosis: string;
   visitNumber: number;
+  photoFileId?: string | null;
 }
 
 export const insertVisitSchema = z.object({
@@ -54,6 +55,7 @@ export const insertVisitSchema = z.object({
   date: z.string(),
   complaints: z.string().min(1, "Complaints are required"),
   diagnosis: z.string().min(1, "Diagnosis is required"),
+  photoFileId: z.string().optional().nullable(),
 });
 
 export type InsertVisit = z.infer<typeof insertVisitSchema>;

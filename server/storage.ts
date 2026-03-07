@@ -30,6 +30,7 @@ export interface IStorage {
 
   // Visits
   getVisits(): Promise<Visit[]>;
+  getVisit(id: string): Promise<Visit | undefined>;
   getVisitsByPatient(patientId: string): Promise<Visit[]>;
   createVisit(visit: InsertVisit): Promise<Visit>;
   updateVisit(id: string, visit: InsertVisit): Promise<Visit | undefined>;
@@ -96,6 +97,7 @@ type DbVisitRow = {
   complaints: string;
   diagnosis: string;
   visit_number: number;
+  photo_file_id?: string | null;
 };
 
 type DbMedicineRow = {
@@ -168,6 +170,7 @@ const createTableStatements = [
     complaints TEXT NOT NULL,
     diagnosis TEXT NOT NULL,
     visit_number INTEGER NOT NULL,
+    photo_file_id TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS visits_patient_idx ON visits(patient_id)`,
@@ -243,6 +246,9 @@ async function ensureTables(): Promise<void> {
   }
   // Migration for new time column
   await pool.query("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS time TEXT DEFAULT ''");
+
+  // Migration for visits photo_file_id
+  await pool.query("ALTER TABLE visits ADD COLUMN IF NOT EXISTS photo_file_id TEXT");
 
   // Migration for discount fields
   await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount DOUBLE PRECISION DEFAULT 0");
@@ -350,6 +356,7 @@ const mapVisit = (row: DbVisitRow): Visit => ({
   complaints: row.complaints,
   diagnosis: row.diagnosis,
   visitNumber: row.visit_number,
+  photoFileId: row.photo_file_id,
 });
 
 const mapMedicine = (row: DbMedicineRow): Medicine => ({
@@ -586,11 +593,31 @@ export class PostgresStorage implements IStorage {
       return cached;
     }
     const { rows } = await pool.query<DbVisitRow>(
-      "SELECT id, patient_id, date, complaints, diagnosis, visit_number FROM visits ORDER BY date DESC, visit_number DESC"
+      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id FROM visits ORDER BY date DESC, visit_number DESC"
     );
     const visits = rows.map(mapVisit);
     this.cache.set("visits:all", visits);
     return visits;
+  }
+
+  async getVisit(id: string): Promise<Visit | undefined> {
+    await this.waitForReady();
+    const normalizedId = normalizeId(id);
+    const cacheKey = `visit:${normalizedId}`;
+    const cached = this.cache.get<Visit>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const dbId = this.convertId("visits", id);
+    const { rows } = await pool.query<DbVisitRow>(
+      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id FROM visits WHERE id = $1",
+      [dbId]
+    );
+    const visit = rows[0] ? mapVisit(rows[0]) : undefined;
+    if (visit) {
+      this.cache.set(cacheKey, visit);
+    }
+    return visit;
   }
 
   async getVisitsByPatient(patientId: string): Promise<Visit[]> {
@@ -603,7 +630,7 @@ export class PostgresStorage implements IStorage {
     }
     const dbPatientId = this.convertId("patients", patientId);
     const { rows } = await pool.query<DbVisitRow>(
-      "SELECT id, patient_id, date, complaints, diagnosis, visit_number FROM visits WHERE patient_id = $1 ORDER BY visit_number DESC",
+      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id FROM visits WHERE patient_id = $1 ORDER BY visit_number DESC",
       [dbPatientId]
     );
     const visits = rows.map(mapVisit);
@@ -626,14 +653,14 @@ export class PostgresStorage implements IStorage {
     const visitNumber = Number(visit_number ?? 1);
     const usesNumericVisitId = this.usesNumericId("visits");
     const insertQuery = usesNumericVisitId
-      ? `INSERT INTO visits(patient_id, date, complaints, diagnosis, visit_number)
-         VALUES($1, $2, $3, $4, $5)
-         RETURNING id, patient_id, date, complaints, diagnosis, visit_number`
-      : `INSERT INTO visits(id, patient_id, date, complaints, diagnosis, visit_number)
+      ? `INSERT INTO visits(patient_id, date, complaints, diagnosis, visit_number, photo_file_id)
          VALUES($1, $2, $3, $4, $5, $6)
-         RETURNING id, patient_id, date, complaints, diagnosis, visit_number`;
+         RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id`
+      : `INSERT INTO visits(id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id)
+         VALUES($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id`;
     const insertParams = usesNumericVisitId
-      ? [patientIdValue, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, visitNumber]
+      ? [patientIdValue, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, visitNumber, insertVisit.photoFileId]
       : [
         randomUUID(),
         patientIdValue,
@@ -641,6 +668,7 @@ export class PostgresStorage implements IStorage {
         insertVisit.complaints,
         insertVisit.diagnosis,
         visitNumber,
+        insertVisit.photoFileId,
       ];
     const { rows } = await pool.query<DbVisitRow>(insertQuery, insertParams);
     const visit = mapVisit(rows[0]);
@@ -657,15 +685,17 @@ export class PostgresStorage implements IStorage {
       `UPDATE visits
        SET date = $2,
             complaints = $3,
-            diagnosis = $4
+            diagnosis = $4,
+            photo_file_id = $5
        WHERE id = $1
-       RETURNING id, patient_id, date, complaints, diagnosis, visit_number`,
-      [dbVisitId, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis]
+       RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id`,
+      [dbVisitId, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, insertVisit.photoFileId]
     );
     const visit = rows[0] ? mapVisit(rows[0]) : undefined;
     if (visit) {
       this.cache.invalidate("visits");
-      this.cache.invalidate(`visits: patient:${visit.patientId} `);
+      this.cache.invalidate(`visit:${normalizeId(id)}`);
+      this.cache.invalidate(`visits: patient: ${normalizeId(visit.patientId)}`);
     }
     return visit;
   }

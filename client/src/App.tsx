@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -17,6 +17,7 @@ import Expenses from "@/pages/expenses";
 import AppointmentMaster from "@/pages/appointment-master";
 import Reports from "@/pages/reports";
 import AuthPage from "@/pages/auth-page";
+import CaptureModule from "@/pages/CaptureModule";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
@@ -43,6 +44,13 @@ function ProtectedRoute(props: { component: React.ComponentType<any>, path?: str
   return <Route path={props.path} component={props.component} />;
 }
 
+function NavbarWrapper() {
+  const [location] = useLocation();
+  const isCaptureModule = location === "/omera-clinic-image-capture";
+  if (isCaptureModule) return null;
+  return <Navbar />;
+}
+
 function Router() {
   return (
     <Switch>
@@ -57,6 +65,7 @@ function Router() {
       <ProtectedRoute path="/expenses" component={Expenses} roles={['admin']} />
       <ProtectedRoute path="/appointments" component={AppointmentMaster} />
       <ProtectedRoute path="/reports" component={Reports} roles={['admin']} />
+      <ProtectedRoute path="/omera-clinic-image-capture" component={CaptureModule} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -69,7 +78,7 @@ function App() {
         <AuthProvider>
           <TooltipProvider>
             <div className="min-h-screen bg-background pb-20">
-              <Navbar />
+              <NavbarWrapper />
               <main>
                 <Router />
               </main>

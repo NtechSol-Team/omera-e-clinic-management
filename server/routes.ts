@@ -14,8 +14,30 @@ import {
   // registerSchema, loginSchema removed with auth
 } from "@shared/schema";
 import { z } from "zod";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { uploadToStorage, getSignedUrlFromStorage, deleteFromStorage } from "./storage-service";
+
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (_req: any, file: any, cb: any) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/heif", "image/heic"];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only JPEG, PNG, and HEIF are allowed."));
+    }
+  },
+});
 
 import { ensureAuthenticated } from "./auth";
+
+// Simple in-memory cache for signed URLs to speed up photo loading
+// Key: fileId, Value: { url: string, expires: number }
+const signedUrlCache = new Map<string, { url: string, expires: number }>();
+const CACHE_TTL = 4 * 60 * 1000; // 4 minutes (slightly less than the 5min signed URL expiry)
 
 export async function registerRoutes(
   httpServer: Server,
@@ -109,7 +131,38 @@ export async function registerRoutes(
   app.get("/api/visits/:patientId", async (req, res) => {
     try {
       const visits = await storage.getVisitsByPatient(req.params.patientId);
-      res.json(visits);
+
+      // Process in small batches to avoid overwhelming the storage service
+      const BATCH_SIZE = 3;
+      const visitsWithUrls: any[] = [];
+
+      for (let i = 0; i < visits.length; i += BATCH_SIZE) {
+        const batch = visits.slice(i, i + BATCH_SIZE);
+        const resolvedBatch = await Promise.all(batch.map(async (visit) => {
+          if (!visit.photoFileId) return visit;
+
+          const cached = signedUrlCache.get(visit.photoFileId);
+          if (cached && cached.expires > Date.now()) {
+            return { ...visit, photoUrl: cached.url };
+          }
+
+          try {
+            const signedUrl = await getSignedUrlFromStorage(visit.photoFileId);
+            signedUrlCache.set(visit.photoFileId, {
+              url: signedUrl,
+              expires: Date.now() + CACHE_TTL
+            });
+            return { ...visit, photoUrl: signedUrl };
+          } catch (err: any) {
+            // Log concisely to avoid terminal flooding
+            console.log(`[Storage] Failed URL: ${visit.photoFileId.slice(-6)} - ${err.code || 'Error'}`);
+            return { ...visit, photoUrl: undefined };
+          }
+        }));
+        visitsWithUrls.push(...resolvedBatch);
+      }
+
+      res.json(visitsWithUrls);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch visits" });
     }
@@ -141,6 +194,115 @@ export async function registerRoutes(
         return res.status(400).json({ error: error.errors });
       }
       res.status(500).json({ error: "Failed to update visit" });
+    }
+  });
+
+  app.post("/api/visits/:id/photo", upload.single("photo"), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No photo uploaded" });
+      }
+
+      const visitId = req.params.id;
+      const targetVisit = await storage.getVisit(visitId);
+
+      if (!targetVisit) {
+        fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: "Visit not found" });
+      }
+
+      const patient = await storage.getPatient(targetVisit.patientId);
+      if (!patient) {
+        fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: "Patient not found" });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const extension = path.extname(req.file.originalname) || ".png";
+      const fileName = `${patient.name.replace(/\s+/g, "_")}_${timestamp}${extension}`;
+
+      const fileId = await uploadToStorage(req.file.path, fileName);
+
+      // Update visit with fileId
+      await storage.updateVisit(targetVisit.id, {
+        patientId: targetVisit.patientId,
+        date: targetVisit.date,
+        complaints: targetVisit.complaints,
+        diagnosis: targetVisit.diagnosis,
+        photoFileId: fileId
+      });
+
+      // Remove local temp file
+      fs.unlinkSync(req.file.path);
+
+      // Generate signed URL immediately for preview
+      const signedUrl = await getSignedUrlFromStorage(fileId);
+
+      res.json({ message: "Photo uploaded successfully", fileId, url: signedUrl });
+    } catch (error) {
+      if (req.file) fs.unlinkSync(req.file.path);
+      console.error("Photo upload error:", error);
+      res.status(500).json({ error: "Failed to upload photo" });
+    }
+  });
+
+  app.get("/api/visits/:id/photo-url", async (req, res) => {
+    try {
+      const visit = await storage.getVisit(req.params.id);
+
+      if (!visit || !visit.photoFileId) {
+        return res.status(404).json({ error: "Photo not found for this visit" });
+      }
+
+      const cached = signedUrlCache.get(visit.photoFileId);
+      if (cached && cached.expires > Date.now()) {
+        return res.json({ url: cached.url });
+      }
+
+      const signedUrl = await getSignedUrlFromStorage(visit.photoFileId);
+
+      // Update cache
+      signedUrlCache.set(visit.photoFileId, {
+        url: signedUrl,
+        expires: Date.now() + CACHE_TTL
+      });
+
+      res.json({ url: signedUrl });
+    } catch (error) {
+      console.error("Error getting signed URL:", error);
+      res.status(500).json({ error: "Failed to get photo URL" });
+    }
+  });
+
+  app.delete("/api/visits/:id/photo", async (req, res) => {
+    try {
+      const visit = await storage.getVisit(req.params.id);
+
+      if (!visit || !visit.photoFileId) {
+        return res.status(404).json({ error: "Photo not found for this visit" });
+      }
+
+      // Delete from storage service
+      try {
+        await deleteFromStorage(visit.photoFileId);
+      } catch (storageError) {
+        console.error("Error deleting from storage service:", storageError);
+        // Continue even if storage deletion fails, to clear it from our DB
+      }
+
+      // Update visit in DB
+      await storage.updateVisit(visit.id, {
+        patientId: visit.patientId,
+        date: visit.date,
+        complaints: visit.complaints,
+        diagnosis: visit.diagnosis,
+        photoFileId: null
+      });
+
+      res.json({ message: "Photo deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting photo:", error);
+      res.status(500).json({ error: "Failed to delete photo" });
     }
   });
 

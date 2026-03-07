@@ -56,6 +56,10 @@ import { apiRequest } from "@/lib/queryClient";
 import { extractPaginatedData } from "@/lib/utils";
 import { format } from "date-fns";
 import { z } from "zod";
+import { VisitPhotoUpload } from "@/components/VisitPhotoUpload";
+import { PatientPhotoGallery } from "@/components/PatientPhotoGallery";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LayoutGrid, ClipboardList } from "lucide-react";
 
 const addVisitSchema = z.object({
   date: z.string(),
@@ -514,99 +518,135 @@ export default function PatientDetails() {
             </DialogContent>
           </Dialog>
         </CardHeader>
-        <CardContent>
-          {sortedVisits.length === 0 ? (
-            <div className="text-center py-8">
-              <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">No visits recorded yet</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {sortedVisits.map((visit, index) => (
-                <div
-                  key={visit.id}
-                  className="relative pl-6 pb-6 last:pb-0 border-l-2 border-border last:border-transparent"
-                  data-testid={`card-visit-${visit.id}`}
-                >
-                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-primary border-4 border-background" />
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="font-medium">
-                          {format(new Date(visit.date), "dd MMM yyyy")}
-                        </span>
-                        <Badge variant="secondary">
-                          {sortedVisits.length - index === 1 ? "1st" :
-                            sortedVisits.length - index === 2 ? "2nd" :
-                              sortedVisits.length - index === 3 ? "3rd" :
-                                `${sortedVisits.length - index}th`} Visit
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8"
-                        onClick={() => openEditDialog(visit)}
-                        data-testid={`button-edit-visit-${visit.id}`}
-                      >
-                        <Pencil className="w-4 h-4 mr-1" />
-                        Edit
-                      </Button>
-                    </div>
+        <Tabs defaultValue="history" className="w-full">
+          <div className="px-6 pb-2 border-b">
+            <TabsList className="bg-slate-100/50 p-1">
+              <TabsTrigger value="history" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                <ClipboardList className="h-3.5 w-3.5 mr-2" />
+                Visit History
+              </TabsTrigger>
+              <TabsTrigger value="gallery" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                <LayoutGrid className="h-3.5 w-3.5 mr-2" />
+                Photo Gallery
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="p-3 rounded-lg bg-muted/50">
-                        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                          <FileText className="w-4 h-4" />
-                          Complaints
-                        </div>
-                        <p className="text-sm" data-testid={`text-complaints-${visit.id}`}>
-                          {visit.complaints}
-                        </p>
-                      </div>
-
-                      <div className="p-3 rounded-lg bg-muted/50">
-                        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                          <Stethoscope className="w-4 h-4" />
-                          Diagnosis
-                        </div>
-                        <p className="text-sm" data-testid={`text-diagnosis-${visit.id}`}>
-                          {visit.diagnosis}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Show medicines from bills on the same date */}
-                    {(() => {
-                      const visitDateStr = format(new Date(visit.date), "yyyy-MM-dd");
-                      const visitBills = patientBills.filter(
-                        (b) => format(new Date(b.date), "yyyy-MM-dd") === visitDateStr && b.medicines.length > 0
-                      );
-                      if (visitBills.length === 0) return null;
-                      const allMedicines = visitBills.flatMap((b) => b.medicines);
-                      return (
-                        <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 mt-2">
-                          <div className="flex items-center gap-2 text-sm font-medium text-primary mb-2">
-                            <FileText className="w-4 h-4" />
-                            Medicines Given
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {allMedicines.map((m, idx) => (
-                              <Badge key={idx} variant="secondary" className="text-xs">
-                                {m.medicineName} x{m.quantity}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
+          <TabsContent value="history" className="m-0">
+            <CardContent className="pt-6">
+              {sortedVisits.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">No visits recorded yet</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
+              ) : (
+                <div className="space-y-4">
+                  {sortedVisits.map((visit, index) => (
+                    <div
+                      key={visit.id}
+                      className="relative pl-6 pb-6 last:pb-0 border-l-2 border-border last:border-transparent"
+                      data-testid={`card-visit-${visit.id}`}
+                    >
+                      <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-primary border-4 border-background" />
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="font-medium">
+                              {format(new Date(visit.date), "dd MMM yyyy")}
+                            </span>
+                            <Badge variant="secondary">
+                              {sortedVisits.length - index === 1 ? "1st" :
+                                sortedVisits.length - index === 2 ? "2nd" :
+                                  sortedVisits.length - index === 3 ? "3rd" :
+                                    `${sortedVisits.length - index}th`} Visit
+                            </Badge>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => openEditDialog(visit)}
+                            data-testid={`button-edit-visit-${visit.id}`}
+                          >
+                            <Pencil className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="p-3 rounded-lg bg-muted/50">
+                            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                              <FileText className="w-4 h-4" />
+                              Complaints
+                            </div>
+                            <p className="text-sm" data-testid={`text-complaints-${visit.id}`}>
+                              {visit.complaints}
+                            </p>
+                          </div>
+
+                          <div className="p-3 rounded-lg bg-muted/50">
+                            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                              <Stethoscope className="w-4 h-4" />
+                              Diagnosis
+                            </div>
+                            <p className="text-sm" data-testid={`text-diagnosis-${visit.id}`}>
+                              {visit.diagnosis}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Show medicines from bills on the same date */}
+                        {(() => {
+                          const visitDateStr = format(new Date(visit.date), "yyyy-MM-dd");
+                          const visitBills = patientBills.filter(
+                            (b) => format(new Date(b.date), "yyyy-MM-dd") === visitDateStr && b.medicines.length > 0
+                          );
+                          if (visitBills.length === 0) return null;
+                          const allMedicines = visitBills.flatMap((b) => b.medicines);
+                          return (
+                            <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 mt-2">
+                              <div className="flex items-center gap-2 text-sm font-medium text-primary mb-2">
+                                <FileText className="w-4 h-4" />
+                                Medicines Given
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {allMedicines.map((m, idx) => (
+                                  <Badge key={idx} variant="secondary" className="text-xs">
+                                    {m.medicineName} x{m.quantity}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Visit Photo - Professional & Compact */}
+                        <div className="mt-4 pt-3 border-t border-slate-100">
+                          <VisitPhotoUpload
+                            visitId={visit.id}
+                            initialPhotoFileId={visit.photoFileId}
+                            initialPhotoUrl={(visit as any).photoUrl}
+                            onUploadSuccess={() => {
+                              queryClient.invalidateQueries({ queryKey: ["/api/visits", patientId] });
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </TabsContent>
+
+          <TabsContent value="gallery" className="m-0">
+            <CardContent className="pt-6">
+              <PatientPhotoGallery visits={visits} />
+            </CardContent>
+          </TabsContent>
+        </Tabs>
       </Card>
 
       <Dialog open={isEditDialogOpen} onOpenChange={handleEditDialogChange}>
@@ -672,7 +712,18 @@ export default function PatientDetails() {
                   )}
                 />
 
-                <div className="flex justify-end gap-3 pt-2">
+                <div className="mt-4 pt-4 border-t">
+                  <VisitPhotoUpload
+                    visitId={editingVisit.id}
+                    initialPhotoFileId={editingVisit.photoFileId}
+                    initialPhotoUrl={(editingVisit as any).photoUrl}
+                    onUploadSuccess={() => {
+                      queryClient.invalidateQueries({ queryKey: ["/api/visits", patientId] });
+                    }}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t mt-4">
                   <Button
                     type="button"
                     variant="outline"
@@ -695,65 +746,67 @@ export default function PatientDetails() {
           )}
         </DialogContent>
       </Dialog>
-      {user?.role === 'admin' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-4">
-            <div>
-              <CardTitle className="text-lg">Bill History</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                {patientBills.length} bill{patientBills.length !== 1 ? "s" : ""} generated
-              </p>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {patientBills.length === 0 ? (
-              <div className="text-center py-8">
-                <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">No bills generated yet</p>
+      {
+        user?.role === 'admin' && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-4">
+              <div>
+                <CardTitle className="text-lg">Bill History</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {patientBills.length} bill{patientBills.length !== 1 ? "s" : ""} generated
+                </p>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {patientBills.map((bill) => (
-                  <div
-                    key={bill.id}
-                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover-elevate"
-                    data-testid={`card-bill-${bill.id}`}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">
-                          {format(new Date(bill.date), "dd MMM yyyy")}
-                        </span>
-                        <Badge variant={bill.pendingAmount > 0 ? "destructive" : "outline"} className={bill.pendingAmount === 0 ? "text-green-600 border-green-200 bg-green-50" : ""}>
-                          {bill.pendingAmount > 0 ? "Pending" : "Paid"}
-                        </Badge>
+            </CardHeader>
+            <CardContent>
+              {patientBills.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">No bills generated yet</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {patientBills.map((bill) => (
+                    <div
+                      key={bill.id}
+                      className="flex items-center justify-between p-4 rounded-lg border bg-card hover-elevate"
+                      data-testid={`card-bill-${bill.id}`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {format(new Date(bill.date), "dd MMM yyyy")}
+                          </span>
+                          <Badge variant={bill.pendingAmount > 0 ? "destructive" : "outline"} className={bill.pendingAmount === 0 ? "text-green-600 border-green-200 bg-green-50" : ""}>
+                            {bill.pendingAmount > 0 ? "Pending" : "Paid"}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {bill.treatments.length} Treatments, {bill.medicines.length} Medicines
+                        </div>
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        {bill.treatments.length} Treatments, {bill.medicines.length} Medicines
+                      <div className="text-right">
+                        <div className="font-bold text-lg">
+                          ₹{bill.finalAmount.toFixed(2)}
+                        </div>
+                        {bill.discount > 0 && (
+                          <div className="text-xs text-muted-foreground line-through">
+                            ₹{bill.grandTotal.toFixed(2)}
+                          </div>
+                        )}
+                        {bill.pendingAmount > 0 && (
+                          <div className="text-sm text-destructive font-medium">
+                            Due: ₹{bill.pendingAmount.toFixed(2)}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-bold text-lg">
-                        ₹{bill.finalAmount.toFixed(2)}
-                      </div>
-                      {bill.discount > 0 && (
-                        <div className="text-xs text-muted-foreground line-through">
-                          ₹{bill.grandTotal.toFixed(2)}
-                        </div>
-                      )}
-                      {bill.pendingAmount > 0 && (
-                        <div className="text-sm text-destructive font-medium">
-                          Due: ₹{bill.pendingAmount.toFixed(2)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      }
+    </div >
   );
 }

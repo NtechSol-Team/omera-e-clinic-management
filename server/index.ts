@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import cors from "cors";
 import compression from "compression";
+import chalk from "chalk";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -18,10 +19,10 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // unsafe-eval needed for some dev tools/vite
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
+        imgSrc: ["'self'", "data:", "blob:", "https://s3.wasabisys.com"],
         connectSrc: ["'self'", "ws:", "wss:"], // needed for HMR
-        fontSrc: ["'self'", "data:"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       },
     },
   })
@@ -58,10 +59,11 @@ declare module "http" {
 }
 
 // Configure CORS to allow requests from the frontend
-const clientOrigin = process.env.CLIENT_ORIGIN || (process.env.NODE_ENV === "production" ? "*" : "http://localhost:5173");
+const clientOrigin = process.env.CLIENT_ORIGIN || (process.env.NODE_ENV === "production" ? "http://localhost:3000" : "*");
 app.use(
   cors({
     origin: clientOrigin,
+    credentials: true,
   }),
 );
 
@@ -91,10 +93,19 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       const status = res.statusCode;
-      const statusIcon = status >= 200 && status < 300 ? "✓" : status >= 400 ? "✗" : "";
+      const statusIcon = status >= 200 && status < 300 ? chalk.green("✓") : status >= 400 ? chalk.red("✗") : "";
       const user = (req as any).user as User | undefined;
       const userLabel = user ? ` (${user.username})` : "";
-      const logLine = `${req.method} ${path}${userLabel} ${status} ${statusIcon} in ${duration}ms`;
+
+      let methodLabel = req.method;
+      if (req.method === "GET") methodLabel = chalk.blue(req.method);
+      else if (req.method === "POST") methodLabel = chalk.yellow(req.method);
+      else if (req.method === "PATCH") methodLabel = chalk.cyan(req.method);
+      else if (req.method === "DELETE") methodLabel = chalk.red(req.method);
+
+      const statusLabel = status >= 200 && status < 300 ? chalk.green(status) : chalk.red(status);
+
+      const logLine = `${methodLabel} ${path}${userLabel} ${statusLabel} ${statusIcon} in ${duration}ms`;
       log(logLine);
     }
   });
@@ -130,7 +141,7 @@ app.use((req, res, next) => {
     // Other ports are firewalled. Default to 5000 if not specified.
     // this serves both the API and the client.
     // It is the only port that is not firewalled.
-    const port = parseInt(process.env.PORT || "5050", 10);
+    const port = parseInt(process.env.PORT || "3000", 10);
     httpServer.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
     });
