@@ -267,6 +267,9 @@ async function ensureTables(): Promise<void> {
   // Backfill: if payment_mode is Cash set cash_amount, if Online set online_amount
   await pool.query("UPDATE bills SET cash_amount = amount_paid WHERE cash_amount = 0 AND payment_mode = 'Cash' AND amount_paid > 0");
   await pool.query("UPDATE bills SET online_amount = amount_paid WHERE online_amount = 0 AND payment_mode = 'Online' AND amount_paid > 0");
+  // Fallback: any paid bill with no mode breakdown at all → defaults to cash
+  await pool.query("UPDATE bills SET cash_amount = amount_paid WHERE cash_amount = 0 AND online_amount = 0 AND amount_paid > 0");
+
 
   // Backfill final_amount for existing records if it's 0 but grand_total is not (optional but good for consistency)
   await pool.query("UPDATE bills SET final_amount = grand_total WHERE final_amount = 0 AND discount = 0 AND grand_total > 0");
@@ -969,7 +972,7 @@ export class PostgresStorage implements IStorage {
     }
     const { rows } = await pool.query<DbBillRow>(
       `SELECT id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount
        FROM bills
        ORDER BY date DESC`
     );
@@ -989,7 +992,7 @@ export class PostgresStorage implements IStorage {
     const dbId = this.convertId("bills", id);
     const { rows } = await pool.query<DbBillRow>(
       `SELECT id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount
        FROM bills
        WHERE id = $1`,
       [dbId]
@@ -1007,6 +1010,8 @@ export class PostgresStorage implements IStorage {
       const patientIdValue = this.convertId("patients", insertBill.patientId);
       const pendingAmount = Math.max(0, insertBill.finalAmount - insertBill.amountPaid);
       const useNumericId = this.usesNumericId("bills");
+      const initialCash = insertBill.amountPaid > 0 && insertBill.paymentMode !== 'Online' ? insertBill.amountPaid : 0;
+      const initialOnline = insertBill.amountPaid > 0 && insertBill.paymentMode === 'Online' ? insertBill.amountPaid : 0;
       const query = useNumericId
         ? `INSERT INTO bills(
               patient_id,
@@ -1021,11 +1026,13 @@ export class PostgresStorage implements IStorage {
               final_amount,
               amount_paid,
               pending_amount,
-              payment_mode
+              payment_mode,
+              cash_amount,
+              online_amount
             )
-          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount`
         : `INSERT INTO bills(
               id,
               patient_id,
@@ -1040,11 +1047,13 @@ export class PostgresStorage implements IStorage {
               final_amount,
               amount_paid,
               pending_amount,
-              payment_mode
+              payment_mode,
+              cash_amount,
+              online_amount
             )
-          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`;
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount`;
 
       const params = useNumericId
         ? [
@@ -1061,6 +1070,8 @@ export class PostgresStorage implements IStorage {
           insertBill.amountPaid,
           pendingAmount,
           insertBill.paymentMode || null,
+          initialCash,
+          initialOnline,
         ]
         : [
           randomUUID(),
@@ -1077,6 +1088,8 @@ export class PostgresStorage implements IStorage {
           insertBill.amountPaid,
           pendingAmount,
           insertBill.paymentMode || null,
+          initialCash,
+          initialOnline,
         ];
 
       const { rows } = await pool.query<DbBillRow>(query, params);
@@ -1169,6 +1182,8 @@ export class PostgresStorage implements IStorage {
       const pendingAmount = Math.max(0, insertBillData.finalAmount - insertBillData.amountPaid);
       const useNumericId = this.usesNumericId("bills");
 
+      const initialCash2 = insertBillData.amountPaid > 0 && insertBillData.paymentMode !== 'Online' ? insertBillData.amountPaid : 0;
+      const initialOnline2 = insertBillData.amountPaid > 0 && insertBillData.paymentMode === 'Online' ? insertBillData.amountPaid : 0;
       const query = useNumericId
         ? `INSERT INTO bills(
         patient_id,
@@ -1183,11 +1198,13 @@ export class PostgresStorage implements IStorage {
         final_amount,
         amount_paid,
         pending_amount,
-        payment_mode
+        payment_mode,
+        cash_amount,
+        online_amount
       )
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount`
         : `INSERT INTO bills(
           id,
           patient_id,
@@ -1202,11 +1219,13 @@ export class PostgresStorage implements IStorage {
           final_amount,
           amount_paid,
           pending_amount,
-          payment_mode
+          payment_mode,
+          cash_amount,
+          online_amount
         )
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`;
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount`;
 
       const params = useNumericId
         ? [
@@ -1223,6 +1242,8 @@ export class PostgresStorage implements IStorage {
           insertBillData.amountPaid,
           pendingAmount,
           insertBillData.paymentMode || null,
+          initialCash2,
+          initialOnline2,
         ]
         : [
           randomUUID(),
@@ -1239,6 +1260,8 @@ export class PostgresStorage implements IStorage {
           insertBillData.amountPaid,
           pendingAmount,
           insertBillData.paymentMode || null,
+          initialCash2,
+          initialOnline2,
         ];
 
       const { rows } = await client.query<DbBillRow>(query, params);
@@ -1288,7 +1311,7 @@ export class PostgresStorage implements IStorage {
         payment_mode = $14
        WHERE id = $1
        RETURNING id, patient_id, patient_name, date, treatments, medicines,
-        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`,
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount`,
       [
         dbId,
         this.convertId("patients", insertBill.patientId),
@@ -1575,7 +1598,7 @@ export class PostgresStorage implements IStorage {
 
     const { rows } = await pool.query<DbBillRow>(
       `SELECT id, patient_id, patient_name, date, treatments, medicines,
-        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode, cash_amount, online_amount
        FROM bills
        ORDER BY date DESC
        LIMIT $1 OFFSET $2`,
