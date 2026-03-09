@@ -538,7 +538,6 @@ export async function registerRoutes(
     try {
       const { addAmount, setAmount, paymentMode } = req.body;
 
-      // Validate incoming numeric values if present
       if (typeof addAmount !== "undefined" && typeof addAmount !== "number") {
         return res.status(400).json({ error: "Invalid addAmount" });
       }
@@ -546,22 +545,23 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid setAmount" });
       }
 
-      // Get current bill to calculate new total
       const currentBill = await storage.getBill(req.params.id);
       if (!currentBill) {
         return res.status(404).json({ error: "Bill not found" });
       }
 
       let newTotalPaid: number;
+      let delta: number | undefined; // the incremental amount being added this payment
 
-      // If setAmount is provided, use it as the absolute paid total (allow correcting mistakes)
       if (typeof setAmount === "number") {
+        // Absolute override — reset mode tracking to the chosen mode
         if (setAmount < 0 || setAmount > currentBill.grandTotal) {
           return res.status(400).json({ error: "setAmount must be between 0 and bill total" });
         }
         newTotalPaid = setAmount;
+        delta = undefined; // signal setAmount mode (no delta)
       } else {
-        // Otherwise use additive flow (existing behavior)
+        // Additive payment
         const add = typeof addAmount === "number" ? addAmount : undefined;
         if (typeof add === "undefined" || add < 0) {
           return res.status(400).json({ error: "Invalid payment amount" });
@@ -572,9 +572,10 @@ export async function registerRoutes(
             error: `Cannot exceed bill amount. Remaining: ₹${(currentBill.grandTotal - currentBill.amountPaid).toFixed(2)}`
           });
         }
+        delta = add; // pass the increment so storage can track per-mode
       }
 
-      const bill = await storage.updateBillPayment(req.params.id, newTotalPaid, paymentMode);
+      const bill = await storage.updateBillPayment(req.params.id, newTotalPaid, paymentMode, delta);
       if (!bill) {
         return res.status(404).json({ error: "Bill not found" });
       }
@@ -583,6 +584,7 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to update payment" });
     }
   });
+
 
   app.delete("/api/bills/:id", async (req, res) => {
     try {

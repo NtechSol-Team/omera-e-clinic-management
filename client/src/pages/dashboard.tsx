@@ -113,8 +113,8 @@ export default function Dashboard() {
   // Today's bills calculations
   const todayBills = bills.filter((bill) => bill.date === todayDate);
   const todayPaidRevenue = todayBills.reduce((sum, bill) => sum + bill.amountPaid, 0);
-  const todayCashPaid = todayBills.filter(b => b.paymentMode === 'Cash' || !b.paymentMode).reduce((sum, b) => sum + b.amountPaid, 0);
-  const todayOnlinePaid = todayBills.filter(b => b.paymentMode === 'Online').reduce((sum, b) => sum + b.amountPaid, 0);
+  const todayCashPaid = todayBills.reduce((sum, b) => sum + (b.cashAmount ?? 0), 0);
+  const todayOnlinePaid = todayBills.reduce((sum, b) => sum + (b.onlineAmount ?? 0), 0);
   const todayPendingAmount = todayBills.reduce((sum, bill) => sum + bill.pendingAmount, 0);
 
   // Today's Appointments

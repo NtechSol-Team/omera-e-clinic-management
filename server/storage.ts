@@ -129,6 +129,8 @@ type DbBillRow = {
   amount_paid: number;
   pending_amount: number;
   payment_mode?: 'Cash' | 'Online' | null;
+  cash_amount?: number;
+  online_amount?: number;
 };
 
 type DbExpenseRow = {
@@ -259,6 +261,12 @@ async function ensureTables(): Promise<void> {
   await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount DOUBLE PRECISION DEFAULT 0");
   await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS final_amount DOUBLE PRECISION DEFAULT 0");
   await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_mode TEXT");
+  // Migration for per-mode payment tracking
+  await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS cash_amount DOUBLE PRECISION DEFAULT 0");
+  await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS online_amount DOUBLE PRECISION DEFAULT 0");
+  // Backfill: if payment_mode is Cash set cash_amount, if Online set online_amount
+  await pool.query("UPDATE bills SET cash_amount = amount_paid WHERE cash_amount = 0 AND payment_mode = 'Cash' AND amount_paid > 0");
+  await pool.query("UPDATE bills SET online_amount = amount_paid WHERE online_amount = 0 AND payment_mode = 'Online' AND amount_paid > 0");
 
   // Backfill final_amount for existing records if it's 0 but grand_total is not (optional but good for consistency)
   await pool.query("UPDATE bills SET final_amount = grand_total WHERE final_amount = 0 AND discount = 0 AND grand_total > 0");
@@ -426,6 +434,8 @@ const mapBill = (row: DbBillRow): Bill => {
     amountPaid: row.amount_paid,
     pendingAmount: row.pending_amount,
     paymentMode: row.payment_mode as 'Cash' | 'Online' | null,
+    cashAmount: row.cash_amount ?? 0,
+    onlineAmount: row.online_amount ?? 0,
   };
 };
 
@@ -1304,18 +1314,67 @@ export class PostgresStorage implements IStorage {
     return bill;
   }
 
-  async updateBillPayment(id: string, amountPaid: number, paymentMode?: 'Cash' | 'Online' | null): Promise<Bill | undefined> {
+  /**
+   * updateBillPayment — tracks cash and online amounts independently.
+   *
+   * addAmount mode: increments the correct per-mode column
+   * setAmount mode: resets amount_paid and recalculates columns proportionally
+   *                 (for "correct a mistake" use-case, sets all to the new mode)
+   */
+  async updateBillPayment(
+    id: string,
+    newTotalPaid: number,
+    paymentMode?: 'Cash' | 'Online' | null,
+    addAmount?: number   // the increment (optional, for tracking per-mode delta)
+  ): Promise<Bill | undefined> {
     await this.waitForReady();
     const dbId = this.convertId("bills", id);
+
+    // Fetch current row to know existing cash/online amounts
+    const { rows: cur } = await pool.query<DbBillRow>(
+      `SELECT amount_paid, cash_amount, online_amount, final_amount FROM bills WHERE id = $1`,
+      [dbId]
+    );
+    if (!cur[0]) return undefined;
+
+    const prevCash = cur[0].cash_amount ?? 0;
+    const prevOnline = cur[0].online_amount ?? 0;
+
+    let newCash = prevCash;
+    let newOnline = prevOnline;
+
+    if (typeof addAmount === 'number' && addAmount > 0) {
+      // Incremental payment — add to the right column
+      if (paymentMode === 'Cash') {
+        newCash = prevCash + addAmount;
+      } else if (paymentMode === 'Online') {
+        newOnline = prevOnline + addAmount;
+      } else {
+        newCash = prevCash + addAmount; // default to Cash if mode not specified
+      }
+    } else {
+      // setAmount mode — reset and assign entirely to the chosen mode
+      if (paymentMode === 'Online') {
+        newOnline = newTotalPaid;
+        newCash = 0;
+      } else {
+        newCash = newTotalPaid;
+        newOnline = 0;
+      }
+    }
+
     const { rows } = await pool.query<DbBillRow>(
       `UPDATE bills
        SET amount_paid = $2,
          pending_amount = GREATEST(0, final_amount - $2),
-         payment_mode = $3
+         payment_mode = $3,
+         cash_amount = $4,
+         online_amount = $5
        WHERE id = $1
        RETURNING id, patient_id, patient_name, date, treatments, medicines,
-        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`,
-      [dbId, amountPaid, paymentMode || null]
+        treatment_total, medicine_total, grand_total, discount, final_amount,
+        amount_paid, pending_amount, payment_mode, cash_amount, online_amount`,
+      [dbId, newTotalPaid, paymentMode || null, newCash, newOnline]
     );
     const bill = rows[0] ? mapBill(rows[0]) : undefined;
     if (bill) {

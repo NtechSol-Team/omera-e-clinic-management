@@ -127,7 +127,9 @@ export interface Bill {
   finalAmount: number;
   amountPaid: number;
   pendingAmount: number;
-  paymentMode?: 'Cash' | 'Online' | null;
+  paymentMode?: 'Cash' | 'Online' | null; // last payment mode (legacy summary)
+  cashAmount: number;   // running total paid via Cash
+  onlineAmount: number; // running total paid via Online
 }
 
 export const insertBillSchema = z.object({
