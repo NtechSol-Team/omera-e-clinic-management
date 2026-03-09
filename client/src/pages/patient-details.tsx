@@ -89,6 +89,8 @@ export default function PatientDetails() {
   const { data: visits = [], isLoading: visitsLoading } = useQuery<Visit[]>({
     queryKey: ["/api/visits", patientId],
     enabled: !!patientId,
+    refetchInterval: 10_000,       // re-fetch every 10 seconds
+    refetchOnWindowFocus: true,    // also re-fetch when tab gets focus
   });
 
   const { data: billsResponse } = useQuery({
@@ -626,8 +628,8 @@ export default function PatientDetails() {
                         <div className="mt-4 pt-3 border-t border-slate-100">
                           <VisitPhotoUpload
                             visitId={visit.id}
-                            initialPhotoFileId={visit.photoFileId}
-                            initialPhotoUrl={(visit as any).photoUrl}
+                            initialPhotoFileIds={(visit as any).photoFileIds ?? (visit.photoFileId ? [visit.photoFileId] : [])}
+                            initialPhotoUrls={(visit as any).photoUrls ?? ((visit as any).photoUrl ? [(visit as any).photoUrl] : [])}
                             onUploadSuccess={() => {
                               queryClient.invalidateQueries({ queryKey: ["/api/visits", patientId] });
                             }}
@@ -715,8 +717,8 @@ export default function PatientDetails() {
                 <div className="mt-4 pt-4 border-t">
                   <VisitPhotoUpload
                     visitId={editingVisit.id}
-                    initialPhotoFileId={editingVisit.photoFileId}
-                    initialPhotoUrl={(editingVisit as any).photoUrl}
+                    initialPhotoFileIds={(editingVisit as any).photoFileIds ?? (editingVisit.photoFileId ? [editingVisit.photoFileId] : [])}
+                    initialPhotoUrls={(editingVisit as any).photoUrls ?? ((editingVisit as any).photoUrl ? [(editingVisit as any).photoUrl] : [])}
                     onUploadSuccess={() => {
                       queryClient.invalidateQueries({ queryKey: ["/api/visits", patientId] });
                     }}

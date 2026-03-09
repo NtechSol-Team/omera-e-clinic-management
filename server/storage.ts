@@ -56,7 +56,7 @@ export interface IStorage {
   createBill(bill: InsertBill, patientName: string): Promise<Bill>;
   createBillWithStockUpdate(bill: InsertBill, patientName: string): Promise<Bill>;
   updateBill(id: string, bill: InsertBill, patientName: string): Promise<Bill | undefined>;
-  updateBillPayment(id: string, amountPaid: number): Promise<Bill | undefined>;
+  updateBillPayment(id: string, amountPaid: number, paymentMode?: 'Cash' | 'Online' | null): Promise<Bill | undefined>;
   updatePatientBillsName(patientId: string, patientName: string): Promise<void>;
   deleteBill(id: string): Promise<boolean>;
 
@@ -97,7 +97,7 @@ type DbVisitRow = {
   complaints: string;
   diagnosis: string;
   visit_number: number;
-  photo_file_id?: string | null;
+  photo_file_ids?: string[] | null;
 };
 
 type DbMedicineRow = {
@@ -128,6 +128,7 @@ type DbBillRow = {
   final_amount: number;
   amount_paid: number;
   pending_amount: number;
+  payment_mode?: 'Cash' | 'Online' | null;
 };
 
 type DbExpenseRow = {
@@ -170,7 +171,7 @@ const createTableStatements = [
     complaints TEXT NOT NULL,
     diagnosis TEXT NOT NULL,
     visit_number INTEGER NOT NULL,
-    photo_file_id TEXT,
+    photo_file_ids TEXT[] DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS visits_patient_idx ON visits(patient_id)`,
@@ -199,7 +200,8 @@ const createTableStatements = [
     discount DOUBLE PRECISION DEFAULT 0,
     final_amount DOUBLE PRECISION DEFAULT 0,
     amount_paid DOUBLE PRECISION NOT NULL,
-    pending_amount DOUBLE PRECISION NOT NULL
+    pending_amount DOUBLE PRECISION NOT NULL,
+    payment_mode TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS bills_patient_idx ON bills(patient_id)`,
   `CREATE TABLE IF NOT EXISTS expenses (
@@ -247,16 +249,22 @@ async function ensureTables(): Promise<void> {
   // Migration for new time column
   await pool.query("ALTER TABLE appointments ADD COLUMN IF NOT EXISTS time TEXT DEFAULT ''");
 
-  // Migration for visits photo_file_id
+  // Migration for visits photo_file_ids array (multi-photo)
   await pool.query("ALTER TABLE visits ADD COLUMN IF NOT EXISTS photo_file_id TEXT");
+  await pool.query("ALTER TABLE visits ADD COLUMN IF NOT EXISTS photo_file_ids TEXT[] DEFAULT '{}'");
+  // Backfill photo_file_ids from legacy photo_file_id for existing rows
+  await pool.query("UPDATE visits SET photo_file_ids = ARRAY[photo_file_id] WHERE photo_file_id IS NOT NULL AND (photo_file_ids IS NULL OR array_length(photo_file_ids, 1) IS NULL)");
 
   // Migration for discount fields
   await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount DOUBLE PRECISION DEFAULT 0");
   await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS final_amount DOUBLE PRECISION DEFAULT 0");
+  await pool.query("ALTER TABLE bills ADD COLUMN IF NOT EXISTS payment_mode TEXT");
 
   // Backfill final_amount for existing records if it's 0 but grand_total is not (optional but good for consistency)
-  // We can assume if final_amount is 0 and discount is 0, final_amount should match grand_total.
   await pool.query("UPDATE bills SET final_amount = grand_total WHERE final_amount = 0 AND discount = 0 AND grand_total > 0");
+
+  // Backfill payment_mode for legacy records where amount_paid > 0 but payment_mode is NULL
+  await pool.query("UPDATE bills SET payment_mode = 'Cash' WHERE payment_mode IS NULL AND amount_paid > 0");
 
   // Seed default users if none exist
   const { rows: userCount } = await pool.query("SELECT COUNT(*) FROM users");
@@ -349,15 +357,19 @@ const mapPatient = (row: DbPatientRow): Patient => ({
   registrationDate: row.registration_date,
 });
 
-const mapVisit = (row: DbVisitRow): Visit => ({
-  id: normalizeId(row.id),
-  patientId: normalizeId(row.patient_id),
-  date: row.date,
-  complaints: row.complaints,
-  diagnosis: row.diagnosis,
-  visitNumber: row.visit_number,
-  photoFileId: row.photo_file_id,
-});
+const mapVisit = (row: DbVisitRow): Visit => {
+  const ids = Array.isArray(row.photo_file_ids) ? row.photo_file_ids : [];
+  return {
+    id: normalizeId(row.id),
+    patientId: normalizeId(row.patient_id),
+    date: row.date,
+    complaints: row.complaints,
+    diagnosis: row.diagnosis,
+    visitNumber: row.visit_number,
+    photoFileIds: ids,
+    photoFileId: ids.length > 0 ? ids[0] : null,
+  };
+};
 
 const mapMedicine = (row: DbMedicineRow): Medicine => ({
   id: normalizeId(row.id),
@@ -413,6 +425,7 @@ const mapBill = (row: DbBillRow): Bill => {
     finalAmount: finalAmount,
     amountPaid: row.amount_paid,
     pendingAmount: row.pending_amount,
+    paymentMode: row.payment_mode as 'Cash' | 'Online' | null,
   };
 };
 
@@ -593,7 +606,7 @@ export class PostgresStorage implements IStorage {
       return cached;
     }
     const { rows } = await pool.query<DbVisitRow>(
-      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id FROM visits ORDER BY date DESC, visit_number DESC"
+      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids FROM visits ORDER BY date DESC, visit_number DESC"
     );
     const visits = rows.map(mapVisit);
     this.cache.set("visits:all", visits);
@@ -610,7 +623,7 @@ export class PostgresStorage implements IStorage {
     }
     const dbId = this.convertId("visits", id);
     const { rows } = await pool.query<DbVisitRow>(
-      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id FROM visits WHERE id = $1",
+      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids FROM visits WHERE id = $1",
       [dbId]
     );
     const visit = rows[0] ? mapVisit(rows[0]) : undefined;
@@ -630,7 +643,7 @@ export class PostgresStorage implements IStorage {
     }
     const dbPatientId = this.convertId("patients", patientId);
     const { rows } = await pool.query<DbVisitRow>(
-      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id FROM visits WHERE patient_id = $1 ORDER BY visit_number DESC",
+      "SELECT id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids FROM visits WHERE patient_id = $1 ORDER BY visit_number DESC",
       [dbPatientId]
     );
     const visits = rows.map(mapVisit);
@@ -652,15 +665,16 @@ export class PostgresStorage implements IStorage {
 
     const visitNumber = Number(visit_number ?? 1);
     const usesNumericVisitId = this.usesNumericId("visits");
+    const initialPhotoIds = insertVisit.photoFileIds ?? (insertVisit.photoFileId ? [insertVisit.photoFileId] : []);
     const insertQuery = usesNumericVisitId
-      ? `INSERT INTO visits(patient_id, date, complaints, diagnosis, visit_number, photo_file_id)
+      ? `INSERT INTO visits(patient_id, date, complaints, diagnosis, visit_number, photo_file_ids)
          VALUES($1, $2, $3, $4, $5, $6)
-         RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id`
-      : `INSERT INTO visits(id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id)
+         RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids`
+      : `INSERT INTO visits(id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids)
          VALUES($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id`;
+         RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids`;
     const insertParams = usesNumericVisitId
-      ? [patientIdValue, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, visitNumber, insertVisit.photoFileId]
+      ? [patientIdValue, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, visitNumber, initialPhotoIds]
       : [
         randomUUID(),
         patientIdValue,
@@ -668,33 +682,71 @@ export class PostgresStorage implements IStorage {
         insertVisit.complaints,
         insertVisit.diagnosis,
         visitNumber,
-        insertVisit.photoFileId,
+        initialPhotoIds,
       ];
     const { rows } = await pool.query<DbVisitRow>(insertQuery, insertParams);
     const visit = mapVisit(rows[0]);
     this.cache.invalidate("visits");
-    this.cache.invalidate(`visits: patient: ${normalizeId(insertVisit.patientId)
-      } `);
+    this.cache.invalidate(`visits: patient: ${normalizeId(insertVisit.patientId)}`);
     return visit;
   }
 
   async updateVisit(id: string, insertVisit: InsertVisit): Promise<Visit | undefined> {
     await this.waitForReady();
     const dbVisitId = this.convertId("visits", id);
+    const updatedPhotoIds = insertVisit.photoFileIds ?? (insertVisit.photoFileId ? [insertVisit.photoFileId] : []);
     const { rows } = await pool.query<DbVisitRow>(
       `UPDATE visits
        SET date = $2,
             complaints = $3,
             diagnosis = $4,
-            photo_file_id = $5
+            photo_file_ids = $5
        WHERE id = $1
-       RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_id`,
-      [dbVisitId, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, insertVisit.photoFileId]
+       RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids`,
+      [dbVisitId, insertVisit.date, insertVisit.complaints, insertVisit.diagnosis, updatedPhotoIds]
     );
     const visit = rows[0] ? mapVisit(rows[0]) : undefined;
     if (visit) {
       this.cache.invalidate("visits");
       this.cache.invalidate(`visit:${normalizeId(id)}`);
+      this.cache.invalidate(`visits: patient: ${normalizeId(visit.patientId)}`);
+    }
+    return visit;
+  }
+
+  async addPhotoToVisit(visitId: string, fileId: string): Promise<Visit | undefined> {
+    await this.waitForReady();
+    const dbVisitId = this.convertId("visits", visitId);
+    const { rows } = await pool.query<DbVisitRow>(
+      `UPDATE visits
+       SET photo_file_ids = array_append(COALESCE(photo_file_ids, '{}'), $2)
+       WHERE id = $1
+       RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids`,
+      [dbVisitId, fileId]
+    );
+    const visit = rows[0] ? mapVisit(rows[0]) : undefined;
+    if (visit) {
+      this.cache.invalidate("visits");
+      this.cache.invalidate(`visit:${normalizeId(visitId)}`);
+      this.cache.invalidate(`visits: patient: ${normalizeId(visit.patientId)}`);
+    }
+    return visit;
+  }
+
+  async removePhotoFromVisit(visitId: string, fileId: string): Promise<Visit | undefined> {
+    await this.waitForReady();
+    const dbVisitId = this.convertId("visits", visitId);
+    const { rows } = await pool.query<DbVisitRow>(
+      `UPDATE visits
+       SET photo_file_ids = array_remove(photo_file_ids, $2)
+       WHERE id = $1
+       RETURNING id, patient_id, date, complaints, diagnosis, visit_number, photo_file_ids`,
+      [dbVisitId, fileId]
+    );
+    const visit = rows[0] ? mapVisit(rows[0]) : undefined;
+    if (visit) {
+      this.cache.invalidate("visits");
+      this.cache.invalidate(`visit:${normalizeId(visitId)}`);
       this.cache.invalidate(`visits: patient: ${normalizeId(visit.patientId)}`);
     }
     return visit;
@@ -907,7 +959,7 @@ export class PostgresStorage implements IStorage {
     }
     const { rows } = await pool.query<DbBillRow>(
       `SELECT id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode
        FROM bills
        ORDER BY date DESC`
     );
@@ -927,7 +979,7 @@ export class PostgresStorage implements IStorage {
     const dbId = this.convertId("bills", id);
     const { rows } = await pool.query<DbBillRow>(
       `SELECT id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode
        FROM bills
        WHERE id = $1`,
       [dbId]
@@ -958,11 +1010,12 @@ export class PostgresStorage implements IStorage {
               discount,
               final_amount,
               amount_paid,
-              pending_amount
+              pending_amount,
+              payment_mode
             )
-          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount`
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`
         : `INSERT INTO bills(
               id,
               patient_id,
@@ -976,11 +1029,13 @@ export class PostgresStorage implements IStorage {
               discount,
               final_amount,
               amount_paid,
-              pending_amount
+              pending_amount,
+              payment_mode
             )
-          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount`;
+            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`;
+
       const params = useNumericId
         ? [
           patientIdValue,
@@ -995,6 +1050,7 @@ export class PostgresStorage implements IStorage {
           insertBill.finalAmount,
           insertBill.amountPaid,
           pendingAmount,
+          insertBill.paymentMode || null,
         ]
         : [
           randomUUID(),
@@ -1010,7 +1066,9 @@ export class PostgresStorage implements IStorage {
           insertBill.finalAmount,
           insertBill.amountPaid,
           pendingAmount,
+          insertBill.paymentMode || null,
         ];
+
       const { rows } = await pool.query<DbBillRow>(query, params);
       if (!rows[0]) {
         throw new Error("Failed to create bill - no rows returned");
@@ -1071,11 +1129,11 @@ export class PostgresStorage implements IStorage {
 
           // If still not found, create new medicine
           if (!dbMedicine) {
-            console.log(`Auto-adding new medicine to master: ${med.medicineName}`);
+            console.log(`Auto - adding new medicine to master: ${med.medicineName}`);
             const newMedId = randomUUID();
             const { rows: newMedRows } = await client.query<DbMedicineRow>(
-              `INSERT INTO medicines (id, name, purchase_cost, selling_price, quantity)
-               VALUES ($1, $2, $3, $4, $5)
+              `INSERT INTO medicines(id, name, purchase_cost, selling_price, quantity)
+               VALUES($1, $2, $3, $4, $5)
                RETURNING id, name, purchase_cost, selling_price, quantity`,
               [newMedId, med.medicineName, 0, med.unitPrice, 0]
             );
@@ -1103,40 +1161,42 @@ export class PostgresStorage implements IStorage {
 
       const query = useNumericId
         ? `INSERT INTO bills(
-              patient_id,
-              patient_name,
-              date,
-              treatments,
-              medicines,
-              treatment_total,
-              medicine_total,
-              grand_total,
-              discount,
-              final_amount,
-              amount_paid,
-              pending_amount
-            )
-          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        patient_id,
+        patient_name,
+        date,
+        treatments,
+        medicines,
+        treatment_total,
+        medicine_total,
+        grand_total,
+        discount,
+        final_amount,
+        amount_paid,
+        pending_amount,
+        payment_mode
+      )
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount`
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`
         : `INSERT INTO bills(
-              id,
-              patient_id,
-              patient_name,
-              date,
-              treatments,
-              medicines,
-              treatment_total,
-              medicine_total,
-              grand_total,
-              discount,
-              final_amount,
-              amount_paid,
-              pending_amount
-            )
-          VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          id,
+          patient_id,
+          patient_name,
+          date,
+          treatments,
+          medicines,
+          treatment_total,
+          medicine_total,
+          grand_total,
+          discount,
+          final_amount,
+          amount_paid,
+          pending_amount,
+          payment_mode
+        )
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount`;
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`;
 
       const params = useNumericId
         ? [
@@ -1152,6 +1212,7 @@ export class PostgresStorage implements IStorage {
           insertBillData.finalAmount,
           insertBillData.amountPaid,
           pendingAmount,
+          insertBillData.paymentMode || null,
         ]
         : [
           randomUUID(),
@@ -1167,6 +1228,7 @@ export class PostgresStorage implements IStorage {
           insertBillData.finalAmount,
           insertBillData.amountPaid,
           pendingAmount,
+          insertBillData.paymentMode || null,
         ];
 
       const { rows } = await client.query<DbBillRow>(query, params);
@@ -1202,20 +1264,21 @@ export class PostgresStorage implements IStorage {
     const { rows } = await pool.query<DbBillRow>(
       `UPDATE bills
        SET patient_id = $2,
-            patient_name = $3,
-            date = $4,
-            treatments = $5,
-            medicines = $6,
-            treatment_total = $7,
-            medicine_total = $8,
-            grand_total = $9,
-            discount = $10,
-            final_amount = $11,
-            amount_paid = $12,
-            pending_amount = $13
+        patient_name = $3,
+        date = $4,
+        treatments = $5,
+        medicines = $6,
+        treatment_total = $7,
+        medicine_total = $8,
+        grand_total = $9,
+        discount = $10,
+        final_amount = $11,
+        amount_paid = $12,
+        pending_amount = $13,
+        payment_mode = $14
        WHERE id = $1
        RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount`,
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`,
       [
         dbId,
         this.convertId("patients", insertBill.patientId),
@@ -1230,6 +1293,7 @@ export class PostgresStorage implements IStorage {
         insertBill.finalAmount,
         insertBill.amountPaid,
         pendingAmount,
+        insertBill.paymentMode || null
       ]
     );
     const bill = rows[0] ? mapBill(rows[0]) : undefined;
@@ -1240,22 +1304,23 @@ export class PostgresStorage implements IStorage {
     return bill;
   }
 
-  async updateBillPayment(id: string, amountPaid: number): Promise<Bill | undefined> {
+  async updateBillPayment(id: string, amountPaid: number, paymentMode?: 'Cash' | 'Online' | null): Promise<Bill | undefined> {
     await this.waitForReady();
     const dbId = this.convertId("bills", id);
     const { rows } = await pool.query<DbBillRow>(
       `UPDATE bills
        SET amount_paid = $2,
-            pending_amount = GREATEST(0, final_amount - $2)
+         pending_amount = GREATEST(0, final_amount - $2),
+         payment_mode = $3
        WHERE id = $1
        RETURNING id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount`,
-      [dbId, amountPaid]
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode`,
+      [dbId, amountPaid, paymentMode || null]
     );
     const bill = rows[0] ? mapBill(rows[0]) : undefined;
     if (bill) {
       this.cache.invalidate("bills");
-      this.cache.invalidate(`bill: ${bill.id} `);
+      this.cache.invalidate(`bill:${bill.id}`);
     }
     return bill;
   }
@@ -1323,10 +1388,10 @@ export class PostgresStorage implements IStorage {
     const useNumericId = this.usesNumericId("expenses");
     const query = useNumericId
       ? `INSERT INTO expenses(description, amount, date, category)
-          VALUES($1, $2, $3, $4)
+      VALUES($1, $2, $3, $4)
          RETURNING id, description, amount, date, category`
       : `INSERT INTO expenses(id, description, amount, date, category)
-          VALUES($1, $2, $3, $4, $5)
+      VALUES($1, $2, $3, $4, $5)
          RETURNING id, description, amount, date, category`;
     const params = useNumericId
       ? [insertExpense.description, insertExpense.amount, insertExpense.date, insertExpense.category]
@@ -1350,9 +1415,9 @@ export class PostgresStorage implements IStorage {
     const { rows } = await pool.query<DbExpenseRow>(
       `UPDATE expenses
        SET description = $2,
-            amount = $3,
-            date = $4,
-            category = $5
+        amount = $3,
+        date = $4,
+        category = $5
        WHERE id = $1
        RETURNING id, description, amount, date, category`,
       [dbId, insertExpense.description, insertExpense.amount, insertExpense.date, insertExpense.category]
@@ -1451,7 +1516,7 @@ export class PostgresStorage implements IStorage {
 
     const { rows } = await pool.query<DbBillRow>(
       `SELECT id, patient_id, patient_name, date, treatments, medicines,
-            treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount
+        treatment_total, medicine_total, grand_total, discount, final_amount, amount_paid, pending_amount, payment_mode
        FROM bills
        ORDER BY date DESC
        LIMIT $1 OFFSET $2`,
@@ -1502,7 +1567,7 @@ export class PostgresStorage implements IStorage {
   async getAppointment(id: string): Promise<Appointment | undefined> {
     await this.waitForReady();
     const normalizedId = normalizeId(id);
-    const cacheKey = `appointment: ${normalizedId}`;
+    const cacheKey = `appointment: ${normalizedId} `;
     const cached = this.cache.get<Appointment>(cacheKey);
     if (cached) {
       return cached;
@@ -1525,7 +1590,7 @@ export class PostgresStorage implements IStorage {
   async getAppointmentsByPatient(patientId: string): Promise<Appointment[]> {
     await this.waitForReady();
     const normalizedPatientId = normalizeId(patientId);
-    const cacheKey = `appointments: patient: ${normalizedPatientId}`;
+    const cacheKey = `appointments: patient: ${normalizedPatientId} `;
     const cached = this.cache.get<Appointment[]>(cacheKey);
     if (cached) {
       return cached;
@@ -1549,10 +1614,10 @@ export class PostgresStorage implements IStorage {
     const useNumericId = this.usesNumericId("appointments");
     const query = useNumericId
       ? `INSERT INTO appointments(patient_id, date, time, reason, status)
-         VALUES($1, $2, $3, $4, $5)
+      VALUES($1, $2, $3, $4, $5)
          RETURNING id, patient_id, date, time, reason, status`
       : `INSERT INTO appointments(id, patient_id, date, time, reason, status)
-         VALUES($1, $2, $3, $4, $5, $6)
+      VALUES($1, $2, $3, $4, $5, $6)
          RETURNING id, patient_id, date, time, reason, status`;
 
     const dbPatientId = this.convertId("patients", insert.patientId);

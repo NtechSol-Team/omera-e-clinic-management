@@ -37,20 +37,25 @@ export default function CaptureModule() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isCompressing, setIsCompressing] = useState(false);
+    const [photosUploaded, setPhotosUploaded] = useState(0); // count per visit session
 
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
-    // Fetch Patients
+    // Fetch Patients — polls every 15s so new patients appear automatically
     const { data: patientsResponse, isLoading: patientsLoading } = useQuery({
         queryKey: ["/api/patients"],
+        refetchInterval: 15_000,       // re-fetch every 15 seconds
+        refetchOnWindowFocus: true,    // also re-fetch when tab becomes visible
     });
     const patients = useMemo(() => extractPaginatedData<Patient>(patientsResponse), [patientsResponse]);
 
-    // Fetch Visits for selected patient
+    // Fetch Visits for selected patient — also polls so new visits appear
     const { data: visitsResponse, isLoading: visitsLoading } = useQuery({
         queryKey: ["/api/visits", selectedPatient?.id],
         enabled: !!selectedPatient,
+        refetchInterval: 15_000,
+        refetchOnWindowFocus: true,
     });
     const visits = useMemo(() => (Array.isArray(visitsResponse) ? visitsResponse : []), [visitsResponse]);
 
@@ -67,6 +72,7 @@ export default function CaptureModule() {
             return response.json();
         },
         onSuccess: () => {
+            setPhotosUploaded(prev => prev + 1);
             setStep("SUCCESS");
             queryClient.invalidateQueries({ queryKey: ["/api/visits", selectedPatient?.id] });
         },
@@ -170,6 +176,14 @@ export default function CaptureModule() {
         setPreviewUrl(null);
         setSelectedFile(null);
         setSearchQuery("");
+        setPhotosUploaded(0);
+    };
+
+    // Add another photo to the same visit — keeps patient & visit selected
+    const addAnotherPhoto = () => {
+        setPreviewUrl(null);
+        setSelectedFile(null);
+        setStep("CAPTURE_OPTIONS");
     };
 
     const goBack = () => {
@@ -271,6 +285,7 @@ export default function CaptureModule() {
                                                     <span className="text-primary font-bold text-lg">{patient.name.charAt(0).toUpperCase()}</span>
                                                 </div>
                                                 <div className="flex flex-col gap-0.5">
+                                                    <p className="text-sm font-bold text-slate-800">{patient.name}</p>
                                                     <div className="flex items-center gap-3 text-[11px] font-medium text-slate-400">
                                                         <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {patient.phone}</span>
                                                         <span className="h-1 w-1 rounded-full bg-slate-200" />
@@ -491,7 +506,7 @@ export default function CaptureModule() {
                             animate={{ opacity: 1, scale: 1 }}
                             className="flex-1 flex flex-col items-center justify-center p-6 text-center"
                         >
-                            <div className="relative mb-8">
+                            <div className="relative mb-6">
                                 <motion.div
                                     initial={{ scale: 0 }}
                                     animate={{ scale: 1 }}
@@ -509,22 +524,42 @@ export default function CaptureModule() {
                                 </motion.div>
                             </div>
 
-                            <h2 className="text-2xl font-black text-slate-800 mb-2 leading-tight">Image Attached Successfully!</h2>
-                            <p className="text-sm font-medium text-slate-400 mb-8 max-w-[240px]">
-                                The clinical photo has been synced and is now visible in the main application for the patient's visit.
+                            {/* Badge showing count for this visit */}
+                            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-full px-4 py-1.5 mb-4">
+                                <ImageIcon className="h-3.5 w-3.5" />
+                                <span className="text-xs font-bold uppercase tracking-widest">
+                                    {photosUploaded} Photo{photosUploaded !== 1 ? 's' : ''} Added — Visit #{selectedVisit?.visitNumber}
+                                </span>
+                            </div>
+
+                            <h2 className="text-2xl font-black text-slate-800 mb-2 leading-tight">Photo Saved!</h2>
+                            <p className="text-sm font-medium text-slate-400 mb-6 max-w-[240px]">
+                                Synced to <span className="font-semibold text-slate-600">{selectedPatient?.name}</span>'s visit record.
                             </p>
 
                             <div className="w-full space-y-3">
+                                {/* Primary: add another to same visit */}
                                 <Button
-                                    className="w-full h-14 rounded-2xl font-black gap-3"
-                                    onClick={resetFlow}
+                                    className="w-full h-14 rounded-2xl font-black gap-3 bg-primary"
+                                    onClick={addAnotherPhoto}
                                 >
-                                    <RefreshCcw className="h-5 w-5" />
-                                    START NEW CAPTURE
+                                    <Camera className="h-5 w-5" />
+                                    ADD ANOTHER PHOTO
                                 </Button>
+
+                                {/* Secondary: new patient/visit */}
                                 <Button
                                     variant="outline"
-                                    className="w-full h-14 rounded-2xl font-black text-slate-600 border-slate-200"
+                                    className="w-full h-12 rounded-2xl font-black text-slate-600 border-slate-200"
+                                    onClick={resetFlow}
+                                >
+                                    <RefreshCcw className="h-4 w-4 mr-2" />
+                                    NEW CAPTURE
+                                </Button>
+
+                                <Button
+                                    variant="ghost"
+                                    className="w-full h-10 rounded-2xl font-bold text-slate-400"
                                     onClick={() => window.location.href = "/"}
                                 >
                                     BACK TO DASHBOARD

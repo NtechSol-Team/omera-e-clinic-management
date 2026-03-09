@@ -47,7 +47,8 @@ export interface Visit {
   complaints: string;
   diagnosis: string;
   visitNumber: number;
-  photoFileId?: string | null;
+  photoFileIds: string[]; // Array of photo file IDs
+  photoFileId?: string | null; // Legacy alias: first photo
 }
 
 export const insertVisitSchema = z.object({
@@ -56,6 +57,7 @@ export const insertVisitSchema = z.object({
   complaints: z.string().min(1, "Complaints are required"),
   diagnosis: z.string().min(1, "Diagnosis is required"),
   photoFileId: z.string().optional().nullable(),
+  photoFileIds: z.array(z.string()).optional().default([]),
 });
 
 export type InsertVisit = z.infer<typeof insertVisitSchema>;
@@ -125,6 +127,7 @@ export interface Bill {
   finalAmount: number;
   amountPaid: number;
   pendingAmount: number;
+  paymentMode?: 'Cash' | 'Online' | null;
 }
 
 export const insertBillSchema = z.object({
@@ -150,6 +153,7 @@ export const insertBillSchema = z.object({
   discount: z.number().default(0),
   finalAmount: z.number(),
   amountPaid: z.number().min(0),
+  paymentMode: z.enum(['Cash', 'Online']).optional().nullable(),
 });
 
 export type InsertBill = z.infer<typeof insertBillSchema>;

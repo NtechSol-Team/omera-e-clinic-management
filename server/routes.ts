@@ -139,25 +139,24 @@ export async function registerRoutes(
       for (let i = 0; i < visits.length; i += BATCH_SIZE) {
         const batch = visits.slice(i, i + BATCH_SIZE);
         const resolvedBatch = await Promise.all(batch.map(async (visit) => {
-          if (!visit.photoFileId) return visit;
+          const photoIds: string[] = visit.photoFileIds ?? [];
+          if (photoIds.length === 0) return { ...visit, photoUrls: [], photoUrl: undefined };
 
-          const cached = signedUrlCache.get(visit.photoFileId);
-          if (cached && cached.expires > Date.now()) {
-            return { ...visit, photoUrl: cached.url };
-          }
+          const urls = await Promise.all(photoIds.map(async (fileId) => {
+            const cached = signedUrlCache.get(fileId);
+            if (cached && cached.expires > Date.now()) return cached.url;
+            try {
+              const signedUrl = await getSignedUrlFromStorage(fileId);
+              signedUrlCache.set(fileId, { url: signedUrl, expires: Date.now() + CACHE_TTL });
+              return signedUrl;
+            } catch (err: any) {
+              console.log(`[Storage] Failed URL: ${fileId.slice(-6)} - ${err.code || 'Error'}`);
+              return null;
+            }
+          }));
 
-          try {
-            const signedUrl = await getSignedUrlFromStorage(visit.photoFileId);
-            signedUrlCache.set(visit.photoFileId, {
-              url: signedUrl,
-              expires: Date.now() + CACHE_TTL
-            });
-            return { ...visit, photoUrl: signedUrl };
-          } catch (err: any) {
-            // Log concisely to avoid terminal flooding
-            console.log(`[Storage] Failed URL: ${visit.photoFileId.slice(-6)} - ${err.code || 'Error'}`);
-            return { ...visit, photoUrl: undefined };
-          }
+          const validUrls = urls.filter(Boolean) as string[];
+          return { ...visit, photoUrls: validUrls, photoUrl: validUrls[0] };
         }));
         visitsWithUrls.push(...resolvedBatch);
       }
@@ -218,19 +217,14 @@ export async function registerRoutes(
       }
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const extension = path.extname(req.file.originalname) || ".png";
-      const fileName = `${patient.name.replace(/\s+/g, "_")}_${timestamp}${extension}`;
+      const extension = path.extname(req.file.originalname) || ".jpg";
+      // Use patient ID + visit ID + timestamp for unique, privacy-safe filenames
+      const fileName = `patient_${patient.id}_visit_${targetVisit.visitNumber}_${timestamp}${extension}`;
 
       const fileId = await uploadToStorage(req.file.path, fileName);
 
-      // Update visit with fileId
-      await storage.updateVisit(targetVisit.id, {
-        patientId: targetVisit.patientId,
-        date: targetVisit.date,
-        complaints: targetVisit.complaints,
-        diagnosis: targetVisit.diagnosis,
-        photoFileId: fileId
-      });
+      // Append photo to visit's photo_file_ids array
+      const updatedVisit = await storage.addPhotoToVisit(visitId, fileId);
 
       // Remove local temp file
       fs.unlinkSync(req.file.path);
@@ -238,7 +232,7 @@ export async function registerRoutes(
       // Generate signed URL immediately for preview
       const signedUrl = await getSignedUrlFromStorage(fileId);
 
-      res.json({ message: "Photo uploaded successfully", fileId, url: signedUrl });
+      res.json({ message: "Photo uploaded successfully", fileId, url: signedUrl, visit: updatedVisit });
     } catch (error) {
       if (req.file) fs.unlinkSync(req.file.path);
       console.error("Photo upload error:", error);
@@ -277,27 +271,27 @@ export async function registerRoutes(
   app.delete("/api/visits/:id/photo", async (req, res) => {
     try {
       const visit = await storage.getVisit(req.params.id);
+      const fileId = req.query.fileId as string;
 
-      if (!visit || !visit.photoFileId) {
-        return res.status(404).json({ error: "Photo not found for this visit" });
+      if (!visit || !visit.photoFileIds || visit.photoFileIds.length === 0) {
+        return res.status(404).json({ error: "No photos found for this visit" });
       }
+
+      const targetFileId = fileId || visit.photoFileIds[0];
 
       // Delete from storage service
       try {
-        await deleteFromStorage(visit.photoFileId);
+        await deleteFromStorage(targetFileId);
       } catch (storageError) {
         console.error("Error deleting from storage service:", storageError);
         // Continue even if storage deletion fails, to clear it from our DB
       }
 
-      // Update visit in DB
-      await storage.updateVisit(visit.id, {
-        patientId: visit.patientId,
-        date: visit.date,
-        complaints: visit.complaints,
-        diagnosis: visit.diagnosis,
-        photoFileId: null
-      });
+      // Remove specific photo from visit's array
+      await storage.removePhotoFromVisit(visit.id, targetFileId);
+
+      // Invalidate signed URL cache
+      signedUrlCache.delete(targetFileId);
 
       res.json({ message: "Photo deleted successfully" });
     } catch (error) {
@@ -542,7 +536,7 @@ export async function registerRoutes(
 
   app.patch("/api/bills/:id/payment", async (req, res) => {
     try {
-      const { addAmount, setAmount } = req.body;
+      const { addAmount, setAmount, paymentMode } = req.body;
 
       // Validate incoming numeric values if present
       if (typeof addAmount !== "undefined" && typeof addAmount !== "number") {
@@ -580,7 +574,7 @@ export async function registerRoutes(
         }
       }
 
-      const bill = await storage.updateBillPayment(req.params.id, newTotalPaid);
+      const bill = await storage.updateBillPayment(req.params.id, newTotalPaid, paymentMode);
       if (!bill) {
         return res.status(404).json({ error: "Bill not found" });
       }

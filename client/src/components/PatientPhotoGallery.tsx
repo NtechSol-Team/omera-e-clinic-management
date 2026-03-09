@@ -20,9 +20,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Visit } from "@shared/schema";
 
-// Extend Visit type locally to include the batched photoUrl
+// Extend Visit type locally to include the batched photoUrls
 interface VisitWithUrl extends Visit {
-    photoUrl?: string;
+    photoUrl?: string;  // legacy first photo
+    photoUrls?: string[]; // all photo URLs
 }
 
 interface PatientPhotoGalleryProps {
@@ -34,6 +35,7 @@ interface PhotoItem {
     date: string;
     photoFileId: string;
     visitNumber: number;
+    photoIndex: number; // index within the visit's photos
     url?: string;
 }
 
@@ -42,25 +44,34 @@ export const PatientPhotoGallery: React.FC<PatientPhotoGalleryProps> = ({ visits
     const [photos, setPhotos] = useState<PhotoItem[]>([]);
     const [selectedPhoto, setSelectedPhoto] = useState<PhotoItem | null>(null);
 
-    // Filter and sort photos once - now using the pre-batched photoUrl
+    // Flatten: each photo from each visit becomes one PhotoItem
     useEffect(() => {
-        const photoVisits = visits
-            .filter(v => v.photoFileId)
-            .map(v => ({
-                visitId: v.id,
-                date: v.date,
-                photoFileId: v.photoFileId!,
-                visitNumber: v.visitNumber,
-                url: v.photoUrl // Use the pre-attached URL from the API
-            }))
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const allPhotos: PhotoItem[] = [];
 
-        setPhotos(photoVisits);
+        visits.forEach(v => {
+            const urls = v.photoUrls ?? (v.photoUrl ? [v.photoUrl] : []);
+            const fileIds = v.photoFileIds ?? (v.photoFileId ? [v.photoFileId] : []);
 
-        // Browser optimization: Pre-load the most important images immediately
-        if (photoVisits.length > 0) {
-            const first = photoVisits[0];
-            const last = photoVisits[photoVisits.length - 1];
+            fileIds.forEach((fileId, idx) => {
+                allPhotos.push({
+                    visitId: v.id,
+                    date: v.date,
+                    photoFileId: fileId,
+                    visitNumber: v.visitNumber,
+                    photoIndex: idx,
+                    url: urls[idx],
+                });
+            });
+        });
+
+        allPhotos.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        setPhotos(allPhotos);
+
+        // Pre-load first and last for fast comparison view
+        if (allPhotos.length > 0) {
+            const first = allPhotos[0];
+            const last = allPhotos[allPhotos.length - 1];
             if (first.url) new Image().src = first.url;
             if (last.url) new Image().src = last.url;
         }
@@ -153,7 +164,7 @@ export const PatientPhotoGallery: React.FC<PatientPhotoGalleryProps> = ({ visits
                                     </div>
                                 </div>
                                 <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur-sm border border-slate-100 text-[10px] font-bold text-slate-600">
-                                    {idx === 0 ? "Initial" : idx === photos.length - 1 ? "Latest" : `V${photo.visitNumber}`}
+                                    {idx === 0 ? "Initial" : idx === photos.length - 1 ? "Latest" : `V${photo.visitNumber}${photo.photoIndex > 0 ? ` #${photo.photoIndex + 1}` : ''}`}
                                 </div>
                             </motion.div>
                         ))}

@@ -23,7 +23,11 @@ import {
   Check,
   Phone,
   Printer,
+  MessageCircle,
+  Share2,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +54,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
-import type { Bill, Medicine, Treatment, BillMedicineItem, BillTreatmentItem } from "@shared/schema";
+import type { Bill, Medicine, Treatment, BillMedicineItem, BillTreatmentItem, Patient } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { extractPaginatedData } from "@/lib/utils";
@@ -74,6 +78,7 @@ export default function BillingManage() {
   const [dateFilter, setDateFilter] = useState("current-month");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [paymentMode, setPaymentMode] = useState<"Cash" | "Online">("Cash");
 
   const { data: billsResponse, isLoading: billsLoading } = useQuery({
     queryKey: ["/api/bills"],
@@ -90,10 +95,15 @@ export default function BillingManage() {
   });
   const treatments = extractPaginatedData<Treatment>(treatmentsResponse);
 
+  const { data: patientsResponse } = useQuery({
+    queryKey: ["/api/patients"],
+  });
+  const patients = extractPaginatedData<Patient>(patientsResponse);
+
   const adjustPaymentMutation = useMutation({
-    mutationFn: async ({ billId, addAmount, setAmount }: { billId: string; addAmount?: number; setAmount?: number }) => {
+    mutationFn: async ({ billId, addAmount, setAmount, paymentMode }: { billId: string; addAmount?: number; setAmount?: number; paymentMode?: string }) => {
       // send whichever param is provided (setAmount takes precedence)
-      const body: Record<string, any> = {};
+      const body: Record<string, any> = { paymentMode };
       if (typeof setAmount === "number") body.setAmount = setAmount;
       else if (typeof addAmount === "number") body.addAmount = addAmount;
       return await apiRequest("PATCH", `/api/bills/${billId}/payment`, body);
@@ -361,8 +371,8 @@ export default function BillingManage() {
         <div class="logo">
           <img src="/logo.png" alt="Clinic Care Logo" />
         </div>
-        <div class="clinic-name">CLINIC CARE</div>
-        <div class="clinic-tag">Professional Healthcare Management System</div>
+        <div class="clinic-name">OMERA CLINIC</div>
+        <div class="clinic-tag">Professional Aesthetic & Skin Care</div>
         </div>
 
         <div class="bill-info">
@@ -464,7 +474,7 @@ export default function BillingManage() {
         `}
 
         <div class="footer">
-        <p>Thank you for choosing Clinic Care</p>
+        <p>Thank you for choosing Omera Clinic</p>
         <p>For queries, please contact us during business hours</p>
         </div>
 
@@ -490,18 +500,169 @@ export default function BillingManage() {
     }
   };
 
+  const handleShareWhatsApp = async (bill: Bill) => {
+    // 1. Generate the same HTML as printing but hidden
+    const container = document.createElement("div");
+    container.style.position = "absolute";
+    container.style.left = "-9999px";
+    container.style.top = "-9999px";
+    container.style.width = "800px";
+
+    // Using the same CSS and HTML structure as handlePrintBill but for PDF generation
+    // We need to strip the <html>, <head>, etc. for innerHTML if we just want the container
+    const tempDiv = document.createElement('div');
+    // Simplified version of the printContent for canvas capture
+    tempDiv.innerHTML = `
+      <div style="font-family: Arial, sans-serif; padding: 40px; background: white; color: black; line-height: 1.5;">
+        <div style="text-align: center; margin-bottom: 30px; border-bottom: 3px solid #1e40af; padding-bottom: 20px;">
+          <h1 style="font-size: 28px; font-weight: bold; color: #1e40af; margin-bottom: 5px;">OMERA CLINIC</h1>
+          <p style="font-size: 14px; color: #666; font-style: italic;">Professional Aesthetic & Skin Care</p>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 14px;">
+          <div>
+            <p><strong>Bill ID:</strong> ${bill.id}</p>
+            <p><strong>Date:</strong> ${format(new Date(bill.date), "dd MMM yyyy")}</p>
+          </div>
+          <div style="text-align: right;">
+            <p><strong>Patient:</strong> ${bill.patientName}</p>
+            <p><strong>Status:</strong> ${bill.pendingAmount > 0 ? "PENDING" : "SETTLED"}</p>
+          </div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+          <thead>
+            <tr style="background: #1e40af; color: white;">
+              <th style="padding: 10px; text-align: left;">Description</th>
+              <th style="padding: 10px; text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bill.treatments.map(t => `
+              <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px;">${t.treatmentName}</td>
+                <td style="padding: 10px; text-align: right;">₹${t.price.toFixed(2)}</td>
+              </tr>
+            `).join("")}
+            ${bill.medicines.map(m => `
+              <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px;">${m.medicineName} (${m.quantity}x)</td>
+                <td style="padding: 10px; text-align: right;">₹${m.total.toFixed(2)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+
+        <div style="margin-left: auto; width: 300px;">
+          <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+            <span>Gross Total:</span>
+            <span>₹${bill.grandTotal.toFixed(2)}</span>
+          </div>
+          ${(bill.grandTotal - bill.finalAmount) > 0.01 ? `
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #16a34a;">
+            <span>Discount:</span>
+            <span>-₹${(bill.grandTotal - bill.finalAmount).toFixed(2)}</span>
+          </div>
+          ` : ""}
+          <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e40af; padding: 10px 0; font-weight: bold; font-size: 18px; color: #1e40af; margin: 10px 0;">
+            <span>FINAL:</span>
+            <span>₹${bill.finalAmount.toFixed(2)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #16a34a;">
+            <span>Paid:</span>
+            <span>₹${bill.amountPaid.toFixed(2)}</span>
+          </div>
+          ${bill.pendingAmount > 0 ? `
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; color: #dc2626; font-weight: bold;">
+            <span>PENDING:</span>
+            <span>₹${bill.pendingAmount.toFixed(2)}</span>
+          </div>
+          ` : ""}
+        </div>
+
+        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
+          <p>Thank you for choosing Omera Clinic</p>
+          <p>This is a computer generated invoice.</p>
+        </div>
+      </div>
+    `;
+
+    container.appendChild(tempDiv);
+    document.body.appendChild(container);
+
+    try {
+      toast({ title: "Generating PDF...", description: "Please wait while we prepare your file." });
+
+      const canvas = await html2canvas(tempDiv, { scale: 2 });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      const pdfBlob = pdf.output("blob");
+      const fileName = `Bill_${bill.patientName.replace(/\s+/g, '_')}_${bill.id}.pdf`;
+      const file = new File([pdfBlob], fileName, { type: "application/pdf" });
+
+      const patient = patients.find(p => p.id === bill.patientId);
+      const phone = patient?.phone || "";
+
+      // WhatsApp Message
+      const message = `Hello ${bill.patientName},\n\nPlease find attached the bill for your visit to Omera Clinic on ${format(new Date(bill.date), "dd MMM yyyy")}.\n\nTotal: ₹${bill.finalAmount.toFixed(2)}\nPaid: ₹${bill.amountPaid.toFixed(2)}\nPending: ₹${bill.pendingAmount.toFixed(2)}\n\nThank you for choosing Omera Clinic!`;
+
+      // Try Web Share API for native sharing with file
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: "Clinic Bill",
+            text: message,
+          });
+        } catch (shareErr: any) {
+          if (shareErr.name !== 'AbortError') console.error("Share failed", shareErr);
+        }
+      } else {
+        // Fallback: Download and open WhatsApp Web
+        pdf.save(fileName);
+
+        const encodedMessage = encodeURIComponent(message);
+        const whatsappUrl = phone
+          ? `https://wa.me/${phone.replace(/\D/g, '')}?text=${encodedMessage}`
+          : `https://wa.me/?text=${encodedMessage}`;
+        window.open(whatsappUrl, '_blank');
+
+        toast({
+          title: "PDF Downloaded",
+          description: "Since file sharing is not supported in this browser, the PDF was downloaded. You can now manually attach it on WhatsApp.",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to share PDF", err);
+      toast({
+        title: "Scaling Error",
+        description: "Failed to generate or share PDF. Please try printing instead.",
+        variant: "destructive",
+      });
+    } finally {
+      document.body.removeChild(container);
+    }
+  };
+
   const BillCard = ({
     bill,
     onPayment,
     onEdit,
     onDelete,
     onPrint,
+    onShare,
   }: {
     bill: Bill;
     onPayment: (bill: Bill) => void;
     onEdit: (bill: Bill) => void;
     onDelete: (bill: Bill) => void;
     onPrint: (bill: Bill) => void;
+    onShare: (bill: Bill) => void;
   }) => (
     <div className="p-4 border rounded-lg space-y-3 hover-elevate">
       <div className="flex items-start justify-between gap-2">
@@ -573,6 +734,15 @@ export default function BillingManage() {
         >
           <Printer className="w-4 h-4 mr-1" />
           Print Bill
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex-1 text-green-600 border-green-200 hover:bg-green-50"
+          onClick={() => onShare(bill)}
+        >
+          <MessageCircle className="w-4 h-4 mr-1" />
+          WhatsApp
         </Button>
         {bill.pendingAmount > 0 && (
           <Button
@@ -694,6 +864,7 @@ export default function BillingManage() {
                     onEdit={openEditBillDialog}
                     onDelete={(b) => setBillToDelete(b)}
                     onPrint={handlePrintBill}
+                    onShare={handleShareWhatsApp}
                   />
                 ))}
               </div>
@@ -743,6 +914,7 @@ export default function BillingManage() {
                     onEdit={openEditBillDialog}
                     onDelete={(b) => setBillToDelete(b)}
                     onPrint={handlePrintBill}
+                    onShare={handleShareWhatsApp}
                   />
                 ))}
               </div>
@@ -759,6 +931,7 @@ export default function BillingManage() {
           setEditedPaidAmount("");
           setPaymentDialogAmount("");
           setSelectedBillForPayment(null);
+          setPaymentMode("Cash");
         }
       }}>
         <DialogContent>
@@ -839,6 +1012,19 @@ export default function BillingManage() {
                 )}
               </div>
 
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Payment Mode</label>
+                <Select value={paymentMode} onValueChange={(v: "Cash" | "Online") => setPaymentMode(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select payment mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="Online">Online</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {(paymentDialogAmount || isEditingPaidAmount) && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg space-y-1 text-sm border border-blue-200 dark:border-blue-800">
                   <div className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">AFTER THIS ACTION:</div>
@@ -894,6 +1080,7 @@ export default function BillingManage() {
                       adjustPaymentMutation.mutate({
                         billId: selectedBillForPayment.id,
                         setAmount,
+                        paymentMode,
                       });
                     } else {
                       const addAmount = parseFloat(paymentDialogAmount) || 0;
@@ -916,6 +1103,7 @@ export default function BillingManage() {
                       adjustPaymentMutation.mutate({
                         billId: selectedBillForPayment.id,
                         addAmount,
+                        paymentMode,
                       });
                     }
                   }}

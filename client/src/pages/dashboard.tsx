@@ -113,6 +113,8 @@ export default function Dashboard() {
   // Today's bills calculations
   const todayBills = bills.filter((bill) => bill.date === todayDate);
   const todayPaidRevenue = todayBills.reduce((sum, bill) => sum + bill.amountPaid, 0);
+  const todayCashPaid = todayBills.filter(b => b.paymentMode === 'Cash' || !b.paymentMode).reduce((sum, b) => sum + b.amountPaid, 0);
+  const todayOnlinePaid = todayBills.filter(b => b.paymentMode === 'Online').reduce((sum, b) => sum + b.amountPaid, 0);
   const todayPendingAmount = todayBills.reduce((sum, bill) => sum + bill.pendingAmount, 0);
 
   // Today's Appointments
@@ -250,7 +252,17 @@ export default function Dashboard() {
                 <div className="text-2xl font-bold text-green-600" data-testid="text-today-paid">
                   {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPaidRevenue.toLocaleString()}`}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <div className="flex gap-4 mt-2">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Cash</span>
+                    <span className="text-sm font-medium text-green-700">₹{todayCashPaid.toLocaleString()}</span>
+                  </div>
+                  <div className="flex flex-col border-l pl-4">
+                    <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Online</span>
+                    <span className="text-sm font-medium text-blue-700">₹{todayOnlinePaid.toLocaleString()}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
                   Amount received today
                 </p>
               </CardContent>

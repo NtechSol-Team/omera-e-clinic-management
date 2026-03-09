@@ -41,6 +41,7 @@ export default function BillingCreate() {
   const [selectedMedicines, setSelectedMedicines] = useState<BillMedicineItem[]>([]);
   const [discount, setDiscount] = useState("");
   const [amountPaid, setAmountPaid] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"Cash" | "Online">("Cash");
 
   const { data: patientsResponse, isLoading: patientsLoading } = useQuery({
     queryKey: ["/api/patients"],
@@ -110,6 +111,7 @@ export default function BillingCreate() {
         discount: discountValue,
         finalAmount,
         amountPaid: paid,
+        paymentMode,
       });
     },
     onSuccess: () => {
@@ -140,6 +142,7 @@ export default function BillingCreate() {
     setDiscount("");
     setSearchQuery("");
     setBillDate(format(new Date(), "yyyy-MM-dd"));
+    setPaymentMode("Cash");
   };
 
   const addTreatment = (treatmentId: string) => {
@@ -553,18 +556,31 @@ export default function BillingCreate() {
               {/* Payment Details */}
               <div className="border-t pt-4">
                 <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">Amount Paid</label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max={finalAmount}
-                      value={amountPaid}
-                      onChange={(e) => setAmountPaid(e.target.value)}
-                      placeholder="0"
-                      className="max-w-xs"
-                      data-testid="input-amount-paid"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Amount Paid</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        max={finalAmount}
+                        value={amountPaid}
+                        onChange={(e) => setAmountPaid(e.target.value)}
+                        placeholder="0"
+                        data-testid="input-amount-paid"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Payment Mode</label>
+                      <Select value={paymentMode} onValueChange={(v: "Cash" | "Online") => setPaymentMode(v)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Mode" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Cash">Cash</SelectItem>
+                          <SelectItem value="Online">Online</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg space-y-2">
                     <div className="flex justify-between text-sm">
