@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { Search, Users, Calendar, TrendingUp, AlertCircle, ChevronRight, Phone, ChevronDown, Receipt } from "lucide-react";
+import { Search, Users, Calendar, TrendingUp, AlertCircle, ChevronRight, Phone, ChevronDown, Receipt, Filter } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Patient, Bill, Visit, Appointment } from "@shared/schema";
 import { extractPaginatedData } from "@/lib/utils";
-import { format, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
+import { format, startOfMonth, endOfMonth, isWithinInterval, subDays } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -28,6 +28,9 @@ type AppointmentForm = z.infer<typeof insertAppointmentSchema>;
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [patientFilter, setPatientFilter] = useState<"all" | "new" | "repeat">("all");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "custom">("today");
+  const [customDate, setCustomDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -95,30 +98,43 @@ export default function Dashboard() {
 
   const pendingBills = bills.filter((bill) => bill.pendingAmount > 0);
 
-  // Get today's date string
-  const todayDate = format(new Date(), "yyyy-MM-dd");
+  // Determine active date for filtering
+  let activeDateString = format(new Date(), "yyyy-MM-dd");
+  let activeDateDisplay = format(new Date(), "dd MMM yyyy");
+  let activeDateLabel = "Today";
 
-  // Get unique patient IDs from today's visits
-  const patientIdsWithTodayVisits = new Set(
+  if (dateFilter === "yesterday") {
+    const yesterday = subDays(new Date(), 1);
+    activeDateString = format(yesterday, "yyyy-MM-dd");
+    activeDateDisplay = format(yesterday, "dd MMM yyyy");
+    activeDateLabel = "Yesterday";
+  } else if (dateFilter === "custom") {
+    activeDateString = customDate;
+    activeDateDisplay = format(new Date(customDate), "dd MMM yyyy");
+    activeDateLabel = format(new Date(customDate), "dd MMM yyyy");
+  }
+
+  // Get unique patient IDs from visits on the active date
+  const patientIdsWithActiveDateVisits = new Set(
     visits
-      .filter((v) => v.date === todayDate)
+      .filter((v) => v.date === activeDateString)
       .map((v) => v.patientId)
   );
 
-  // Include patients registered today OR with visits today
-  const todayPatients = patients.filter(
-    (p) => p.registrationDate === todayDate || patientIdsWithTodayVisits.has(p.id)
+  // Include patients registered on the active date OR with visits on the active date
+  const activeDatePatients = patients.filter(
+    (p) => p.registrationDate === activeDateString || patientIdsWithActiveDateVisits.has(p.id)
   );
 
-  // Today's bills calculations
-  const todayBills = bills.filter((bill) => bill.date === todayDate);
-  const todayPaidRevenue = todayBills.reduce((sum, bill) => sum + bill.amountPaid, 0);
-  const todayCashPaid = todayBills.reduce((sum, b) => sum + (b.cashAmount ?? 0), 0);
-  const todayOnlinePaid = todayBills.reduce((sum, b) => sum + (b.onlineAmount ?? 0), 0);
-  const todayPendingAmount = todayBills.reduce((sum, bill) => sum + bill.pendingAmount, 0);
+  // Active date's bills calculations
+  const activeDateBills = bills.filter((bill) => bill.date === activeDateString);
+  const activeDatePaidRevenue = activeDateBills.reduce((sum, bill) => sum + bill.amountPaid, 0);
+  const activeDateCashPaid = activeDateBills.reduce((sum, b) => sum + (b.cashAmount ?? 0), 0);
+  const activeDateOnlinePaid = activeDateBills.reduce((sum, b) => sum + (b.onlineAmount ?? 0), 0);
+  const activeDatePendingAmount = activeDateBills.reduce((sum, bill) => sum + bill.pendingAmount, 0);
 
-  // Today's Appointments
-  const todayAppointments = appointments.filter(a => a.date === todayDate);
+  // Active date's Appointments
+  const activeDateAppointments = appointments.filter(a => a.date === activeDateString);
 
   // Total pending amount from all bills
   const totalPendingAmount = pendingBills.reduce((sum, bill) => sum + bill.pendingAmount, 0);
@@ -195,16 +211,40 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
-          Dashboard
-        </h1>
-        <p className="text-muted-foreground">
-          Overview of your clinic's activity and patient records
-        </p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">
+            Dashboard
+          </h1>
+          <p className="text-muted-foreground">
+            Overview of your clinic's activity and patient records
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select value={dateFilter} onValueChange={(v: "today" | "yesterday" | "custom") => setDateFilter(v)}>
+            <SelectTrigger className="w-[150px] bg-background">
+              <SelectValue placeholder="Select Date" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="yesterday">Yesterday</SelectItem>
+              <SelectItem value="custom">Custom Date</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {dateFilter === "custom" && (
+            <Input
+              type="date"
+              value={customDate}
+              onChange={(e) => setCustomDate(e.target.value)}
+              className="w-auto"
+            />
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className={`grid gap-4 ${user?.role === 'admin' ? 'md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-4'}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -225,16 +265,16 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Today's Patients
+              {activeDateLabel}'s Patients
             </CardTitle>
             <Calendar className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-today-patients">
-              {patientsLoading ? <Skeleton className="h-8 w-16" /> : todayPatients.length}
+              {patientsLoading ? <Skeleton className="h-8 w-16" /> : activeDatePatients.length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {format(new Date(), "dd MMM yyyy")}
+              {activeDateDisplay}
             </p>
           </CardContent>
         </Card>
@@ -244,26 +284,26 @@ export default function Dashboard() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Today's Paid
+                  {activeDateLabel}'s Paid
                 </CardTitle>
                 <TrendingUp className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600" data-testid="text-today-paid">
-                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPaidRevenue.toLocaleString()}`}
+                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${activeDatePaidRevenue.toLocaleString()}`}
                 </div>
                 <div className="flex gap-4 mt-2">
                   <div className="flex flex-col">
                     <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Cash</span>
-                    <span className="text-sm font-medium text-green-700">₹{todayCashPaid.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-green-700">₹{activeDateCashPaid.toLocaleString()}</span>
                   </div>
                   <div className="flex flex-col border-l pl-4">
                     <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Online</span>
-                    <span className="text-sm font-medium text-blue-700">₹{todayOnlinePaid.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-blue-700">₹{activeDateOnlinePaid.toLocaleString()}</span>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Amount received today
+                  Amount received {activeDateLabel.toLowerCase()}
                 </p>
               </CardContent>
             </Card>
@@ -271,24 +311,22 @@ export default function Dashboard() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Today's Pending
+                  {activeDateLabel}'s Pending
                 </CardTitle>
                 <AlertCircle className="w-4 h-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-destructive" data-testid="text-today-pending">
-                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${todayPendingAmount.toLocaleString()}`}
+                  {patientsLoading ? <Skeleton className="h-8 w-20" /> : `₹${activeDatePendingAmount.toLocaleString()}`}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Pending from today's bills
+                  Pending from {activeDateLabel.toLowerCase()}'s bills
                 </p>
               </CardContent>
             </Card>
           </>
         )}
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -412,33 +450,33 @@ export default function Dashboard() {
         )}
       </div>
 
-      {todayPatients.length > 0 && (
+      {activeDatePatients.length > 0 && (
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <Calendar className="w-5 h-5 text-blue-600" />
-              Today's Patients ({todayPatients.length})
+              {activeDateLabel}'s Patients ({activeDatePatients.length})
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-2">
-              Patients registered or visited today - {format(new Date(), "dd MMMM yyyy")}
+              Patients registered or visited {activeDateLabel.toLowerCase()} - {activeDateDisplay}
             </p>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {todayPatients.map((patient) => {
-                const patientTodayBills = bills.filter(
+              {activeDatePatients.map((patient: Patient) => {
+                const patientActiveDateBills = bills.filter(
                   (b) =>
                     b.patientId === patient.id &&
-                    b.date === todayDate
+                    b.date === activeDateString
                 );
-                const patientTodayVisits = visits.filter(
+                const patientActiveDateVisits = visits.filter(
                   (v) =>
                     v.patientId === patient.id &&
-                    v.date === todayDate
+                    v.date === activeDateString
                 );
-                const todayTotal = patientTodayBills.reduce((sum, b) => sum + b.grandTotal, 0);
-                const todayPaid = patientTodayBills.reduce((sum, b) => sum + b.amountPaid, 0);
-                const todayPending = patientTodayBills.reduce((sum, b) => sum + b.pendingAmount, 0);
+                const activeTotal = patientActiveDateBills.reduce((sum, b) => sum + b.grandTotal, 0);
+                const activePaid = patientActiveDateBills.reduce((sum, b) => sum + b.amountPaid, 0);
+                const activePending = patientActiveDateBills.reduce((sum, b) => sum + b.pendingAmount, 0);
 
                 return (
                   <div
@@ -459,9 +497,9 @@ export default function Dashboard() {
                             <Phone className="w-3 h-3" />
                             {patient.phone}
                           </div>
-                          {patientTodayVisits.length > 0 && (
+                          {patientActiveDateVisits.length > 0 && (
                             <div className="text-xs text-blue-600 mt-1">
-                              Visit: {patientTodayVisits[0].diagnosis}
+                              Visit: {patientActiveDateVisits[0].diagnosis}
                             </div>
                           )}
                         </div>
@@ -469,25 +507,25 @@ export default function Dashboard() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <div className="space-y-1">
-                            {patientTodayVisits.length > 0 && (
+                            {patientActiveDateVisits.length > 0 && (
                               <div className="text-sm">
                                 <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                                  Visit({patientTodayVisits.length})
+                                  Visit({patientActiveDateVisits.length})
                                 </Badge>
                               </div>
                             )}
-                            {patientTodayBills.length > 0 ? (
+                            {patientActiveDateBills.length > 0 ? (
                               <div className="text-sm">
                                 <span className="text-muted-foreground">Bills:</span>{" "}
-                                <span className="font-semibold">{patientTodayBills.length}</span>
+                                <span className="font-semibold">{patientActiveDateBills.length}</span>
                               </div>
                             ) : null}
-                            {user?.role === 'admin' && patientTodayBills.length > 0 && (
+                            {user?.role === 'admin' && patientActiveDateBills.length > 0 && (
                               <div className="text-sm">
-                                <span className="text-green-600 font-semibold">₹{todayPaid.toLocaleString()}</span>
-                                {todayPending > 0 && (
+                                <span className="text-green-600 font-semibold">₹{activePaid.toLocaleString()}</span>
+                                {activePending > 0 && (
                                   <span className="text-red-600 font-semibold ml-2">
-                                    Pending: ₹{todayPending.toLocaleString()}
+                                    Pending: ₹{activePending.toLocaleString()}
                                   </span>
                                 )}
                               </div>
@@ -598,7 +636,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-2">
-              {displayedPatients.map((patient) => {
+              {displayedPatients.map((patient: Patient) => {
                 const patientBills = bills.filter((b) => b.patientId === patient.id);
                 const hasPending = patientBills.some((b) => b.pendingAmount > 0);
 
