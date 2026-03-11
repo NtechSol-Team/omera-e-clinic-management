@@ -51,17 +51,17 @@ export default function Registration() {
         phone: data.phone,
         registrationDate: data.registrationDate,
       };
-      
+
       const patientResponse = await apiRequest("POST", "/api/patients", patientData);
       const patient = await patientResponse.json();
-      
+
       await apiRequest("POST", "/api/visits", {
         patientId: patient.id,
         date: data.registrationDate,
         complaints: data.complaints,
         diagnosis: data.diagnosis,
       });
-      
+
       return patient;
     },
     onSuccess: (patient) => {
@@ -181,7 +181,7 @@ export default function Registration() {
                   <Stethoscope className="w-4 h-4 text-primary" />
                   Initial Visit Details
                 </h3>
-                
+
                 <div className="space-y-6">
                   <FormField
                     control={form.control}
@@ -229,12 +229,13 @@ export default function Registration() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t">
+              <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setLocation("/")}
                   data-testid="button-cancel"
+                  className="w-full sm:w-auto"
                 >
                   Cancel
                 </Button>
@@ -242,6 +243,7 @@ export default function Registration() {
                   type="submit"
                   disabled={mutation.isPending}
                   data-testid="button-register"
+                  className="w-full sm:w-auto"
                 >
                   {mutation.isPending ? "Registering..." : "Register Patient"}
                 </Button>

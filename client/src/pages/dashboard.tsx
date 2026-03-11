@@ -244,7 +244,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className={`grid gap-4 ${user?.role === 'admin' ? 'md:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-4'}`}>
+      <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${user?.role === 'admin' ? 'lg:grid-cols-3 xl:grid-cols-4' : 'lg:grid-cols-4'}`}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -484,29 +484,29 @@ export default function Dashboard() {
                     className="group relative p-4 rounded-lg border bg-gradient-to-r from-blue-50 to-cyan-50 hover:shadow-md transition-all"
                   >
                     <div
-                      className="flex items-center justify-between cursor-pointer"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between cursor-pointer gap-4"
                       onClick={() => setLocation(`/patient/${patient.id}`)}
                     >
                       <div className="flex items-center gap-4 flex-1">
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 text-white font-medium">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 text-white font-medium shrink-0">
                           {patient.name.charAt(0).toUpperCase()}
                         </div>
-                        <div className="flex-1">
-                          <div className="font-medium text-lg group-hover:text-blue-700 transition-colors">{patient.name}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-lg group-hover:text-blue-700 transition-colors truncate">{patient.name}</div>
                           <div className="text-sm text-muted-foreground flex items-center gap-2">
                             <Phone className="w-3 h-3" />
                             {patient.phone}
                           </div>
                           {patientActiveDateVisits.length > 0 && (
-                            <div className="text-xs text-blue-600 mt-1">
+                            <div className="text-xs text-blue-600 mt-1 truncate">
                               Visit: {patientActiveDateVisits[0].diagnosis}
                             </div>
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <div className="space-y-1">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 ml-14 sm:ml-0">
+                        <div className="text-left sm:text-right">
+                          <div className="flex flex-col gap-1">
                             {patientActiveDateVisits.length > 0 && (
                               <div className="text-sm">
                                 <Badge variant="secondary" className="bg-blue-100 text-blue-800">
@@ -521,10 +521,10 @@ export default function Dashboard() {
                               </div>
                             ) : null}
                             {user?.role === 'admin' && patientActiveDateBills.length > 0 && (
-                              <div className="text-sm">
+                              <div className="text-sm flex flex-wrap gap-2 sm:justify-end">
                                 <span className="text-green-600 font-semibold">₹{activePaid.toLocaleString()}</span>
                                 {activePending > 0 && (
-                                  <span className="text-red-600 font-semibold ml-2">
+                                  <span className="text-red-600 font-semibold">
                                     Pending: ₹{activePending.toLocaleString()}
                                   </span>
                                 )}
@@ -532,11 +532,11 @@ export default function Dashboard() {
                             )}
                           </div>
                         </div>
-                        <div className="flex flex-col gap-2 z-10">
+                        <div className="flex flex-wrap gap-2 z-10 w-full sm:w-auto">
                           {user?.role === 'admin' && (
                             <Button
                               size="sm"
-                              className="bg-blue-600 hover:bg-blue-700 text-white h-8"
+                              className="bg-blue-600 hover:bg-blue-700 text-white h-8 flex-1 sm:flex-none"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 sessionStorage.setItem("preselectedPatientId", patient.id);
@@ -549,7 +549,7 @@ export default function Dashboard() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            className="h-8 bg-blue-100 text-blue-700 hover:bg-blue-200"
+                            className="h-8 bg-blue-100 text-blue-700 hover:bg-blue-200 flex-1 sm:flex-none"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedPatientForAppointment(patient);
@@ -558,7 +558,7 @@ export default function Dashboard() {
                             Assign Upcoming Visit
                           </Button>
                         </div>
-                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                        <ChevronRight className="w-5 h-5 text-muted-foreground hidden sm:block" />
                       </div>
                     </div>
                   </div>
@@ -653,15 +653,15 @@ export default function Dashboard() {
                     className="block"
                   >
                     <div
-                      className="flex items-center justify-between p-4 rounded-lg border bg-card hover-elevate cursor-pointer transition-all"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border bg-card hover-elevate cursor-pointer transition-all gap-4"
                       data-testid={`card-patient-${patient.id}`}
                     >
                       <div className="flex items-center gap-4">
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary font-medium">
+                        <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary font-medium shrink-0">
                           {patient.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium" data-testid={`text-patient-name-${patient.id}`}>
                               {patient.name}
                             </span>
@@ -671,18 +671,20 @@ export default function Dashboard() {
                               </Badge>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-                            <Phone className="w-3 h-3" />
-                            <span data-testid={`text-patient-phone-${patient.id}`}>
-                              {patient.phone}
-                            </span>
-                            <span className="text-border">|</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-x-2 gap-y-1 text-sm text-muted-foreground sm:flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <Phone className="w-3 h-3" />
+                              <span data-testid={`text-patient-phone-${patient.id}`}>
+                                {patient.phone}
+                              </span>
+                            </div>
+                            <span className="hidden sm:inline text-border">|</span>
                             <span>
-                              Registered: {format(new Date(patient.registrationDate), "dd MMM yyyy")}
+                              Reg: {format(new Date(patient.registrationDate), "dd MMM yyyy")}
                             </span>
                             {lastVisit && (
                               <>
-                                <span className="text-border">|</span>
+                                <span className="hidden sm:inline text-border">|</span>
                                 <span>
                                   Last Visit: {format(new Date(lastVisit.date), "dd MMM yyyy")}
                                 </span>
@@ -691,7 +693,7 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                      <ChevronRight className="w-5 h-5 text-muted-foreground hidden sm:block" />
                     </div>
                   </Link>
                 );

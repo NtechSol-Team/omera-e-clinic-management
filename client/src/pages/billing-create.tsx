@@ -475,7 +475,7 @@ export default function BillingCreate() {
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
-                        <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <div>
                             <label className="text-xs text-muted-foreground">Qty</label>
                             <Input
@@ -513,7 +513,7 @@ export default function BillingCreate() {
                               className="h-8"
                             />
                           </div>
-                          <div>
+                          <div className="flex flex-col justify-end">
                             <label className="text-xs text-muted-foreground">Total (Net)</label>
                             <div className="h-8 flex flex-col justify-center font-medium text-sm">
                               <span>₹{med.total.toFixed(2)}</span>
@@ -556,7 +556,7 @@ export default function BillingCreate() {
               {/* Payment Details */}
               <div className="border-t pt-4">
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium mb-2 block">Amount Paid</label>
                       <Input
@@ -596,8 +596,8 @@ export default function BillingCreate() {
               </div>
 
               {/* Action Buttons */}
-              <div className="border-t pt-4 flex gap-3 justify-end">
-                <Button variant="outline" onClick={resetForm}>
+              <div className="border-t pt-4 flex flex-col sm:flex-row gap-3 justify-end">
+                <Button variant="outline" onClick={resetForm} className="w-full sm:w-auto">
                   Clear
                 </Button>
                 <Button
@@ -609,6 +609,7 @@ export default function BillingCreate() {
                   }
                   onClick={() => createBillMutation.mutate()}
                   data-testid="button-create-bill"
+                  className="w-full sm:w-auto"
                 >
                   {createBillMutation.isPending ? "Creating..." : "Create Bill"}
                 </Button>
